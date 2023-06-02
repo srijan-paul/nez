@@ -5,6 +5,8 @@
 
 namespace emu {
 
+/// \brief Represents an NES CPU.
+/// Has 6 registers: PC, X, Y, Status, 
 struct CPU final {
   using Register = std::uint8_t;
   static constexpr size_t NumRegs = 6;
