@@ -4,3 +4,6 @@ test_patterns = ["tests/**"]
 
 [[analyzers]]
 name = "cxx"
+
+[[transformers]]
+name = "clang-format"
