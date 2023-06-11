@@ -20,8 +20,8 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Fetch dependencies
-      run: sudo apt-get install libvorbis-dev libopenal-dev libudev-dev xorg-dev libxss-dev libxxf86vm-dev libxkbfile-dev libxv-dev
+    - name: Install SFML dependencies
+      run: sudo apt-get install libflac-dev libvorbis-dev libopenal-dev libudev-dev xorg-dev libxss-dev libxxf86vm-dev libxkbfile-dev libxv-dev
 
     - name: Fetch SFML
       run: git submodule update --init --recursive 
