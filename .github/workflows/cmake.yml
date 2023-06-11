@@ -21,7 +21,7 @@ jobs:
     - uses: actions/checkout@v3
 
     - name: Fetch dependencies
-      run: sudo apt-get install libsfml-dev udev xorg-dev libxss-dev libxxf86vm-dev libxkbfile-dev libxv-dev
+      run: sudo apt-get install libsfml-dev libudev xorg-dev libxss-dev libxxf86vm-dev libxkbfile-dev libxv-dev
 
     - name: Fetch SFML
       run: git submodule update --init --recursive 
