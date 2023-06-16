@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <cstdio>
 
 #define NEZ_DEBUG
 
