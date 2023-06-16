@@ -1,5 +1,5 @@
-#include <cpu.hpp>
 #include "test-utils.hpp"
+#include <cpu.hpp>
 
 using namespace nez;
 
@@ -17,4 +17,3 @@ int main() {
   TestContext ctx;
   TEST(ctx, instr_test);
 }
-
