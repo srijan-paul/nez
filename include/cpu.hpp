@@ -46,27 +46,27 @@ struct CPU final {
   static constexpr std::array<const char *, static_cast<std::size_t>(
                                                 RegisterName::numRegisters)>
       RegisterStrs{{"A", "X", "Y", "PC", "Status", "StackPtr"}};
-  
+
   /// Directly read a byte value from memory.
   [[nodiscard]] inline nez::Byte
   read_memory(const std::uint16_t address) const {
     return this->memory[address];
   }
-  
+
   void write_memory(const std::uint16_t address, nez::Byte value);
 
   /// Directly write a byte value to a memory address.
   void write_memory_direct(const std::size_t address, nez::Byte value) {
     this->memory[address] = value;
   }
-  
+
   /// Directly write an instruction to memory.
   void write_memory_direct(const std::size_t addr, nez::Op value) {
     this->memory[addr] = static_cast<nez::Byte>(value);
   }
   void run();
   void step();
-  
+
   /// Get the value from register `reg`
   [[nodiscard]] Register reg_val(RegisterName const reg) const noexcept {
     switch (reg) {
