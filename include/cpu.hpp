@@ -7,9 +7,10 @@
 
 namespace nez {
 
-enum class Op : nez::byte {
+enum class Op : nez::Byte {
   // Load operand into accumulator.
-  LDAimm = 0x0A9,
+  LDAimm = 0xA9,
+  LDAzrpg = 0xA5,
 
   // JAMx instructions freeze the CPU.
   JAM0 = 0x02,
@@ -30,27 +31,43 @@ enum class Op : nez::byte {
 /// Instruction set reference:
 /// https://www.masswerk.at/6502/6502_instruction_set.html
 struct CPU final {
-  using Register = byte;
+  using Register = nez::Byte;
 
   /// Named values used to refer to registers.
-  enum class RegisterName : std::size_t { a = 0, x, y, pc, status, sp };
-
-  [[nodiscard]] inline nez::byte
+  enum class RegisterName : std::size_t {
+    a = 0,
+    x,
+    y,
+    pc,
+    status,
+    sp,
+    numRegisters
+  };
+  static constexpr std::array<const char *, static_cast<std::size_t>(
+                                                RegisterName::numRegisters)>
+      RegisterStrs{{"A", "X", "Y", "PC", "Status", "StackPtr"}};
+  
+  /// Directly read a byte value from memory.
+  [[nodiscard]] inline nez::Byte
   read_memory(const std::uint16_t address) const {
     return this->memory[address];
   }
+  
+  void write_memory(const std::uint16_t address, nez::Byte value);
 
-  void write_memory(const std::uint16_t address, nez::byte value);
-  void write_memory_direct(const std::size_t index, nez::byte value) {
-    this->memory[index] = value;
+  /// Directly write a byte value to a memory address.
+  void write_memory_direct(const std::size_t address, nez::Byte value) {
+    this->memory[address] = value;
   }
-
-  void write_memory_direct(const std::size_t index, nez::Op value) {
-    this->memory[index] = static_cast<nez::byte>(value);
+  
+  /// Directly write an instruction to memory.
+  void write_memory_direct(const std::size_t addr, nez::Op value) {
+    this->memory[addr] = static_cast<nez::Byte>(value);
   }
   void run();
   void step();
-
+  
+  /// Get the value from register `reg`
   [[nodiscard]] Register reg_val(RegisterName const reg) const noexcept {
     switch (reg) {
     case RegisterName::pc:
@@ -65,6 +82,8 @@ struct CPU final {
       return rStatus;
     case RegisterName::sp:
       return rSP;
+    default:
+      NEZ_ERROR("Attempt to read invalid register");
     }
   }
 
@@ -87,7 +106,7 @@ private:
   Register rStatus;
   // Stack Pointer, also called the "P" register sometimes.
   Register rSP;
-  std::array<nez::byte, 0xFFFF> memory;
+  std::array<nez::Byte, 0xFFFF> memory;
 
   /// \brief fetch the next instruction to execute.
   [[nodiscard]] inline Op next_instr() {
@@ -96,8 +115,8 @@ private:
     return instr;
   }
 
-  [[nodiscard]] inline nez::byte next_byte() {
-    const nez::byte operand = this->memory[this->rPC];
+  [[nodiscard]] inline nez::Byte next_byte() {
+    const nez::Byte operand = this->memory[this->rPC];
     ++this->rPC;
     return operand;
   }

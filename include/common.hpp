@@ -15,7 +15,7 @@ namespace nez {
 #endif
 
 
-using byte = std::uint8_t;
+using Byte = std::uint8_t;
 
 }
 
