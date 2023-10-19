@@ -1,24 +1,44 @@
+const rl // = @import("../lib/raylib/raylib.zig");
+    = @import("raylib");
+//
+
 const std = @import("std");
+const Cpu = @import("./cpu.zig");
 
-pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+pub fn main() void {
+    rl.SetConfigFlags(rl.ConfigFlags{ .FLAG_WINDOW_RESIZABLE = true });
+    rl.InitWindow(800, 800, "rl zig test");
+    rl.SetTargetFPS(60);
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    const cpu = Cpu{};
+    _ = cpu;
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    defer rl.CloseWindow();
 
-    try bw.flush(); // don't forget to flush!
-}
+    var ball_pos = rl.Vector2{ .x = 150, .y = 150 };
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+    while (!rl.WindowShouldClose()) {
+        if (rl.IsKeyDown(rl.KeyboardKey.KEY_W)) {
+            ball_pos.y -= 1;
+        }
+
+        if (rl.IsKeyDown(rl.KeyboardKey.KEY_S)) {
+            ball_pos.y += 1;
+        }
+
+        if (rl.IsKeyDown(rl.KeyboardKey.KEY_A)) {
+            ball_pos.x -= 1;
+        }
+
+        if (rl.IsKeyDown(rl.KeyboardKey.KEY_D)) {
+            ball_pos.x += 1;
+        }
+
+        rl.BeginDrawing();
+        defer rl.EndDrawing();
+
+        rl.ClearBackground(rl.BLACK);
+
+        rl.DrawCircleV(ball_pos, 50, rl.GREEN);
+    }
 }
