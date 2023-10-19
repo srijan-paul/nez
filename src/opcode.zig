@@ -1,7 +1,7 @@
 const std = @import("std");
 
 // Useful reference: https://www.masswerk.at/6502/6502_instruction_set.html
-pub const Op = enum {
+pub const Op = enum(u8) {
     ADC,
     AND,
     ASL,
@@ -106,214 +106,215 @@ pub fn bytesForAddrMode(addrMode: AddrMode) u8 {
 // https://www.nesdev.org/obelisk-6502-guide/reference.html
 fn makeLookupTable() [256]Instruction {
     comptime {
+        const Mode = AddrMode;
         var instr_lookup_table: [256]Instruction = .{BadInstruction} ** 256;
 
-        instr_lookup_table[0x69] = .{ Op.ADC, AddrMode.Immediate, 2 };
-        instr_lookup_table[0x65] = .{ Op.ADC, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0x75] = .{ Op.ADC, AddrMode.ZeroPageX, 4 };
-        instr_lookup_table[0x6D] = .{ Op.ADC, AddrMode.Absolute, 4 };
-        instr_lookup_table[0x7D] = .{ Op.ADC, AddrMode.AbsoluteX, 4 };
-        instr_lookup_table[0x79] = .{ Op.ADC, AddrMode.AbsoluteY, 4 };
-        instr_lookup_table[0x61] = .{ Op.ADC, AddrMode.IndirectX, 6 };
-        instr_lookup_table[0x71] = .{ Op.ADC, AddrMode.IndirectY, 5 };
+        instr_lookup_table[0x69] = .{ Op.ADC, Mode.Immediate, 2 };
+        instr_lookup_table[0x65] = .{ Op.ADC, Mode.ZeroPage, 3 };
+        instr_lookup_table[0x75] = .{ Op.ADC, Mode.ZeroPageX, 4 };
+        instr_lookup_table[0x6D] = .{ Op.ADC, Mode.Absolute, 4 };
+        instr_lookup_table[0x7D] = .{ Op.ADC, Mode.AbsoluteX, 4 };
+        instr_lookup_table[0x79] = .{ Op.ADC, Mode.AbsoluteY, 4 };
+        instr_lookup_table[0x61] = .{ Op.ADC, Mode.IndirectX, 6 };
+        instr_lookup_table[0x71] = .{ Op.ADC, Mode.IndirectY, 5 };
 
-        instr_lookup_table[0x29] = .{ Op.AND, AddrMode.Immediate, 2 };
-        instr_lookup_table[0x25] = .{ Op.AND, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0x35] = .{ Op.AND, AddrMode.ZeroPageX, 4 };
-        instr_lookup_table[0x2D] = .{ Op.AND, AddrMode.Absolute, 4 };
-        instr_lookup_table[0x3D] = .{ Op.AND, AddrMode.AbsoluteX, 4 };
-        instr_lookup_table[0x39] = .{ Op.AND, AddrMode.AbsoluteY, 4 };
-        instr_lookup_table[0x21] = .{ Op.AND, AddrMode.IndirectX, 6 };
-        instr_lookup_table[0x31] = .{ Op.AND, AddrMode.IndirectY, 5 };
+        instr_lookup_table[0x29] = .{ Op.AND, Mode.Immediate, 2 };
+        instr_lookup_table[0x25] = .{ Op.AND, Mode.ZeroPage, 3 };
+        instr_lookup_table[0x35] = .{ Op.AND, Mode.ZeroPageX, 4 };
+        instr_lookup_table[0x2D] = .{ Op.AND, Mode.Absolute, 4 };
+        instr_lookup_table[0x3D] = .{ Op.AND, Mode.AbsoluteX, 4 };
+        instr_lookup_table[0x39] = .{ Op.AND, Mode.AbsoluteY, 4 };
+        instr_lookup_table[0x21] = .{ Op.AND, Mode.IndirectX, 6 };
+        instr_lookup_table[0x31] = .{ Op.AND, Mode.IndirectY, 5 };
 
-        instr_lookup_table[0x0A] = .{ Op.ASL, AddrMode.Accumulator, 2 };
-        instr_lookup_table[0x06] = .{ Op.ASL, AddrMode.ZeroPage, 5 };
-        instr_lookup_table[0x16] = .{ Op.ASL, AddrMode.ZeroPageX, 6 };
-        instr_lookup_table[0x0E] = .{ Op.ASL, AddrMode.Absolute, 6 };
-        instr_lookup_table[0x1E] = .{ Op.ASL, AddrMode.AbsoluteX, 7 };
+        instr_lookup_table[0x0A] = .{ Op.ASL, Mode.Accumulator, 2 };
+        instr_lookup_table[0x06] = .{ Op.ASL, Mode.ZeroPage, 5 };
+        instr_lookup_table[0x16] = .{ Op.ASL, Mode.ZeroPageX, 6 };
+        instr_lookup_table[0x0E] = .{ Op.ASL, Mode.Absolute, 6 };
+        instr_lookup_table[0x1E] = .{ Op.ASL, Mode.AbsoluteX, 7 };
 
-        instr_lookup_table[0x90] = .{ Op.BCC, AddrMode.Relative, 2 };
+        instr_lookup_table[0x90] = .{ Op.BCC, Mode.Relative, 2 };
 
-        instr_lookup_table[0xB0] = .{ Op.BCS, AddrMode.Relative, 2 };
+        instr_lookup_table[0xB0] = .{ Op.BCS, Mode.Relative, 2 };
 
-        instr_lookup_table[0xF0] = .{ Op.BEQ, AddrMode.Relative, 2 };
+        instr_lookup_table[0xF0] = .{ Op.BEQ, Mode.Relative, 2 };
 
-        instr_lookup_table[0x24] = .{ Op.BIT, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0x2C] = .{ Op.BIT, AddrMode.Absolute, 4 };
+        instr_lookup_table[0x24] = .{ Op.BIT, Mode.ZeroPage, 3 };
+        instr_lookup_table[0x2C] = .{ Op.BIT, Mode.Absolute, 4 };
 
-        instr_lookup_table[0x30] = .{ Op.BMI, AddrMode.Relative, 2 };
+        instr_lookup_table[0x30] = .{ Op.BMI, Mode.Relative, 2 };
 
-        instr_lookup_table[0xD0] = .{ Op.BNE, AddrMode.Relative, 2 };
+        instr_lookup_table[0xD0] = .{ Op.BNE, Mode.Relative, 2 };
 
-        instr_lookup_table[0x10] = .{ Op.BPL, AddrMode.Relative, 2 };
+        instr_lookup_table[0x10] = .{ Op.BPL, Mode.Relative, 2 };
 
-        instr_lookup_table[0x00] = .{ Op.BRK, AddrMode.Implicit, 7 };
+        instr_lookup_table[0x00] = .{ Op.BRK, Mode.Implicit, 7 };
 
-        instr_lookup_table[0x50] = .{ Op.BVC, AddrMode.Relative, 2 };
+        instr_lookup_table[0x50] = .{ Op.BVC, Mode.Relative, 2 };
 
-        instr_lookup_table[0x70] = .{ Op.BVS, AddrMode.Relative, 2 };
+        instr_lookup_table[0x70] = .{ Op.BVS, Mode.Relative, 2 };
 
-        instr_lookup_table[0x18] = .{ Op.CLC, AddrMode.Implicit, 2 };
+        instr_lookup_table[0x18] = .{ Op.CLC, Mode.Implicit, 2 };
 
-        instr_lookup_table[0xD8] = .{ Op.CLD, AddrMode.Implicit, 2 };
+        instr_lookup_table[0xD8] = .{ Op.CLD, Mode.Implicit, 2 };
 
-        instr_lookup_table[0x58] = .{ Op.CLI, AddrMode.Implicit, 2 };
+        instr_lookup_table[0x58] = .{ Op.CLI, Mode.Implicit, 2 };
 
-        instr_lookup_table[0xB8] = .{ Op.CLV, AddrMode.Implicit, 2 };
+        instr_lookup_table[0xB8] = .{ Op.CLV, Mode.Implicit, 2 };
 
-        instr_lookup_table[0xC9] = .{ Op.CMP, AddrMode.Immediate, 2 };
-        instr_lookup_table[0xC5] = .{ Op.CMP, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0xD5] = .{ Op.CMP, AddrMode.ZeroPageX, 4 };
-        instr_lookup_table[0xCD] = .{ Op.CMP, AddrMode.Absolute, 4 };
-        instr_lookup_table[0xDD] = .{ Op.CMP, AddrMode.AbsoluteX, 4 };
-        instr_lookup_table[0xD9] = .{ Op.CMP, AddrMode.AbsoluteY, 4 };
-        instr_lookup_table[0xC1] = .{ Op.CMP, AddrMode.IndirectX, 6 };
-        instr_lookup_table[0xD1] = .{ Op.CMP, AddrMode.IndirectY, 5 };
+        instr_lookup_table[0xC9] = .{ Op.CMP, Mode.Immediate, 2 };
+        instr_lookup_table[0xC5] = .{ Op.CMP, Mode.ZeroPage, 3 };
+        instr_lookup_table[0xD5] = .{ Op.CMP, Mode.ZeroPageX, 4 };
+        instr_lookup_table[0xCD] = .{ Op.CMP, Mode.Absolute, 4 };
+        instr_lookup_table[0xDD] = .{ Op.CMP, Mode.AbsoluteX, 4 };
+        instr_lookup_table[0xD9] = .{ Op.CMP, Mode.AbsoluteY, 4 };
+        instr_lookup_table[0xC1] = .{ Op.CMP, Mode.IndirectX, 6 };
+        instr_lookup_table[0xD1] = .{ Op.CMP, Mode.IndirectY, 5 };
 
-        instr_lookup_table[0xE0] = .{ Op.CPX, AddrMode.Immediate, 2 };
-        instr_lookup_table[0xE4] = .{ Op.CPX, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0xEC] = .{ Op.CPX, AddrMode.Absolute, 4 };
+        instr_lookup_table[0xE0] = .{ Op.CPX, Mode.Immediate, 2 };
+        instr_lookup_table[0xE4] = .{ Op.CPX, Mode.ZeroPage, 3 };
+        instr_lookup_table[0xEC] = .{ Op.CPX, Mode.Absolute, 4 };
 
-        instr_lookup_table[0xC0] = .{ Op.CPY, AddrMode.Immediate, 2 };
-        instr_lookup_table[0xC4] = .{ Op.CPY, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0xCC] = .{ Op.CPY, AddrMode.Absolute, 4 };
+        instr_lookup_table[0xC0] = .{ Op.CPY, Mode.Immediate, 2 };
+        instr_lookup_table[0xC4] = .{ Op.CPY, Mode.ZeroPage, 3 };
+        instr_lookup_table[0xCC] = .{ Op.CPY, Mode.Absolute, 4 };
 
-        instr_lookup_table[0xC6] = .{ Op.DEC, AddrMode.ZeroPage, 5 };
-        instr_lookup_table[0xD6] = .{ Op.DEC, AddrMode.ZeroPageX, 6 };
-        instr_lookup_table[0xCE] = .{ Op.DEC, AddrMode.Absolute, 6 };
-        instr_lookup_table[0xDE] = .{ Op.DEC, AddrMode.AbsoluteX, 7 };
+        instr_lookup_table[0xC6] = .{ Op.DEC, Mode.ZeroPage, 5 };
+        instr_lookup_table[0xD6] = .{ Op.DEC, Mode.ZeroPageX, 6 };
+        instr_lookup_table[0xCE] = .{ Op.DEC, Mode.Absolute, 6 };
+        instr_lookup_table[0xDE] = .{ Op.DEC, Mode.AbsoluteX, 7 };
 
-        instr_lookup_table[0xCA] = .{ Op.DEX, AddrMode.Implicit, 2 };
+        instr_lookup_table[0xCA] = .{ Op.DEX, Mode.Implicit, 2 };
 
-        instr_lookup_table[0x88] = .{ Op.DEY, AddrMode.Implicit, 2 };
+        instr_lookup_table[0x88] = .{ Op.DEY, Mode.Implicit, 2 };
 
-        instr_lookup_table[0x49] = .{ Op.EOR, AddrMode.Immediate, 2 };
-        instr_lookup_table[0x45] = .{ Op.EOR, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0x55] = .{ Op.EOR, AddrMode.ZeroPageX, 4 };
-        instr_lookup_table[0x4D] = .{ Op.EOR, AddrMode.Absolute, 4 };
-        instr_lookup_table[0x5D] = .{ Op.EOR, AddrMode.AbsoluteX, 4 };
-        instr_lookup_table[0x59] = .{ Op.EOR, AddrMode.AbsoluteY, 4 };
-        instr_lookup_table[0x41] = .{ Op.EOR, AddrMode.IndirectX, 6 };
-        instr_lookup_table[0x51] = .{ Op.EOR, AddrMode.IndirectY, 5 };
+        instr_lookup_table[0x49] = .{ Op.EOR, Mode.Immediate, 2 };
+        instr_lookup_table[0x45] = .{ Op.EOR, Mode.ZeroPage, 3 };
+        instr_lookup_table[0x55] = .{ Op.EOR, Mode.ZeroPageX, 4 };
+        instr_lookup_table[0x4D] = .{ Op.EOR, Mode.Absolute, 4 };
+        instr_lookup_table[0x5D] = .{ Op.EOR, Mode.AbsoluteX, 4 };
+        instr_lookup_table[0x59] = .{ Op.EOR, Mode.AbsoluteY, 4 };
+        instr_lookup_table[0x41] = .{ Op.EOR, Mode.IndirectX, 6 };
+        instr_lookup_table[0x51] = .{ Op.EOR, Mode.IndirectY, 5 };
 
-        instr_lookup_table[0xE6] = .{ Op.INC, AddrMode.ZeroPage, 5 };
-        instr_lookup_table[0xF6] = .{ Op.INC, AddrMode.ZeroPageX, 6 };
-        instr_lookup_table[0xEE] = .{ Op.INC, AddrMode.Absolute, 6 };
-        instr_lookup_table[0xFE] = .{ Op.INC, AddrMode.AbsoluteX, 7 };
+        instr_lookup_table[0xE6] = .{ Op.INC, Mode.ZeroPage, 5 };
+        instr_lookup_table[0xF6] = .{ Op.INC, Mode.ZeroPageX, 6 };
+        instr_lookup_table[0xEE] = .{ Op.INC, Mode.Absolute, 6 };
+        instr_lookup_table[0xFE] = .{ Op.INC, Mode.AbsoluteX, 7 };
 
-        instr_lookup_table[0xE8] = .{ Op.INX, AddrMode.Implicit, 2 };
+        instr_lookup_table[0xE8] = .{ Op.INX, Mode.Implicit, 2 };
 
-        instr_lookup_table[0xC8] = .{ Op.INY, AddrMode.Implicit, 2 };
+        instr_lookup_table[0xC8] = .{ Op.INY, Mode.Implicit, 2 };
 
-        instr_lookup_table[0x4C] = .{ Op.JMP, AddrMode.Absolute, 3 };
-        instr_lookup_table[0x6C] = .{ Op.JMP, AddrMode.Indirect, 5 };
+        instr_lookup_table[0x4C] = .{ Op.JMP, Mode.Absolute, 3 };
+        instr_lookup_table[0x6C] = .{ Op.JMP, Mode.Indirect, 5 };
 
-        instr_lookup_table[0x20] = .{ Op.JSR, AddrMode.Absolute, 6 };
+        instr_lookup_table[0x20] = .{ Op.JSR, Mode.Absolute, 6 };
 
-        instr_lookup_table[0xA9] = .{ Op.LDA, AddrMode.Immediate, 2 };
-        instr_lookup_table[0xA5] = .{ Op.LDA, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0xB5] = .{ Op.LDA, AddrMode.ZeroPageX, 4 };
-        instr_lookup_table[0xAD] = .{ Op.LDA, AddrMode.Absolute, 4 };
-        instr_lookup_table[0xBD] = .{ Op.LDA, AddrMode.AbsoluteX, 4 };
-        instr_lookup_table[0xB9] = .{ Op.LDA, AddrMode.AbsoluteY, 4 };
-        instr_lookup_table[0xA1] = .{ Op.LDA, AddrMode.IndirectX, 6 };
-        instr_lookup_table[0xB1] = .{ Op.LDA, AddrMode.IndirectY, 5 };
+        instr_lookup_table[0xA9] = .{ Op.LDA, Mode.Immediate, 2 };
+        instr_lookup_table[0xA5] = .{ Op.LDA, Mode.ZeroPage, 3 };
+        instr_lookup_table[0xB5] = .{ Op.LDA, Mode.ZeroPageX, 4 };
+        instr_lookup_table[0xAD] = .{ Op.LDA, Mode.Absolute, 4 };
+        instr_lookup_table[0xBD] = .{ Op.LDA, Mode.AbsoluteX, 4 };
+        instr_lookup_table[0xB9] = .{ Op.LDA, Mode.AbsoluteY, 4 };
+        instr_lookup_table[0xA1] = .{ Op.LDA, Mode.IndirectX, 6 };
+        instr_lookup_table[0xB1] = .{ Op.LDA, Mode.IndirectY, 5 };
 
-        instr_lookup_table[0xA2] = .{ Op.LDX, AddrMode.Immediate, 2 };
-        instr_lookup_table[0xA6] = .{ Op.LDX, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0xB6] = .{ Op.LDX, AddrMode.ZeroPageY, 4 };
-        instr_lookup_table[0xAE] = .{ Op.LDX, AddrMode.Absolute, 4 };
-        instr_lookup_table[0xBE] = .{ Op.LDX, AddrMode.AbsoluteY, 4 };
+        instr_lookup_table[0xA2] = .{ Op.LDX, Mode.Immediate, 2 };
+        instr_lookup_table[0xA6] = .{ Op.LDX, Mode.ZeroPage, 3 };
+        instr_lookup_table[0xB6] = .{ Op.LDX, Mode.ZeroPageY, 4 };
+        instr_lookup_table[0xAE] = .{ Op.LDX, Mode.Absolute, 4 };
+        instr_lookup_table[0xBE] = .{ Op.LDX, Mode.AbsoluteY, 4 };
 
-        instr_lookup_table[0xA0] = .{ Op.LDY, AddrMode.Immediate, 2 };
-        instr_lookup_table[0xA4] = .{ Op.LDY, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0xB4] = .{ Op.LDY, AddrMode.ZeroPageX, 4 };
-        instr_lookup_table[0xAC] = .{ Op.LDY, AddrMode.Absolute, 4 };
-        instr_lookup_table[0xBC] = .{ Op.LDY, AddrMode.AbsoluteX, 4 };
+        instr_lookup_table[0xA0] = .{ Op.LDY, Mode.Immediate, 2 };
+        instr_lookup_table[0xA4] = .{ Op.LDY, Mode.ZeroPage, 3 };
+        instr_lookup_table[0xB4] = .{ Op.LDY, Mode.ZeroPageX, 4 };
+        instr_lookup_table[0xAC] = .{ Op.LDY, Mode.Absolute, 4 };
+        instr_lookup_table[0xBC] = .{ Op.LDY, Mode.AbsoluteX, 4 };
 
-        instr_lookup_table[0x4A] = .{ Op.LSR, AddrMode.Accumulator, 2 };
-        instr_lookup_table[0x46] = .{ Op.LSR, AddrMode.ZeroPage, 5 };
-        instr_lookup_table[0x56] = .{ Op.LSR, AddrMode.ZeroPageX, 6 };
-        instr_lookup_table[0x4E] = .{ Op.LSR, AddrMode.Absolute, 6 };
-        instr_lookup_table[0x5E] = .{ Op.LSR, AddrMode.AbsoluteX, 7 };
+        instr_lookup_table[0x4A] = .{ Op.LSR, Mode.Accumulator, 2 };
+        instr_lookup_table[0x46] = .{ Op.LSR, Mode.ZeroPage, 5 };
+        instr_lookup_table[0x56] = .{ Op.LSR, Mode.ZeroPageX, 6 };
+        instr_lookup_table[0x4E] = .{ Op.LSR, Mode.Absolute, 6 };
+        instr_lookup_table[0x5E] = .{ Op.LSR, Mode.AbsoluteX, 7 };
 
-        instr_lookup_table[0xEA] = .{ Op.NOP, AddrMode.Implicit, 2 };
+        instr_lookup_table[0xEA] = .{ Op.NOP, Mode.Implicit, 2 };
 
-        instr_lookup_table[0x09] = .{ Op.ORA, AddrMode.Immediate, 2 };
-        instr_lookup_table[0x05] = .{ Op.ORA, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0x15] = .{ Op.ORA, AddrMode.ZeroPageX, 4 };
-        instr_lookup_table[0x0D] = .{ Op.ORA, AddrMode.Absolute, 4 };
-        instr_lookup_table[0x1D] = .{ Op.ORA, AddrMode.AbsoluteX, 4 };
-        instr_lookup_table[0x19] = .{ Op.ORA, AddrMode.AbsoluteY, 4 };
-        instr_lookup_table[0x01] = .{ Op.ORA, AddrMode.IndirectX, 6 };
-        instr_lookup_table[0x11] = .{ Op.ORA, AddrMode.IndirectY, 5 };
+        instr_lookup_table[0x09] = .{ Op.ORA, Mode.Immediate, 2 };
+        instr_lookup_table[0x05] = .{ Op.ORA, Mode.ZeroPage, 3 };
+        instr_lookup_table[0x15] = .{ Op.ORA, Mode.ZeroPageX, 4 };
+        instr_lookup_table[0x0D] = .{ Op.ORA, Mode.Absolute, 4 };
+        instr_lookup_table[0x1D] = .{ Op.ORA, Mode.AbsoluteX, 4 };
+        instr_lookup_table[0x19] = .{ Op.ORA, Mode.AbsoluteY, 4 };
+        instr_lookup_table[0x01] = .{ Op.ORA, Mode.IndirectX, 6 };
+        instr_lookup_table[0x11] = .{ Op.ORA, Mode.IndirectY, 5 };
 
-        instr_lookup_table[0x48] = .{ Op.PHA, AddrMode.Implicit, 3 };
+        instr_lookup_table[0x48] = .{ Op.PHA, Mode.Implicit, 3 };
 
-        instr_lookup_table[0x08] = .{ Op.PHP, AddrMode.Implicit, 3 };
+        instr_lookup_table[0x08] = .{ Op.PHP, Mode.Implicit, 3 };
 
-        instr_lookup_table[0x68] = .{ Op.PLA, AddrMode.Implicit, 4 };
+        instr_lookup_table[0x68] = .{ Op.PLA, Mode.Implicit, 4 };
 
-        instr_lookup_table[0x28] = .{ Op.PLP, AddrMode.Implicit, 4 };
+        instr_lookup_table[0x28] = .{ Op.PLP, Mode.Implicit, 4 };
 
-        instr_lookup_table[0x2A] = .{ Op.ROL, AddrMode.Accumulator, 2 };
-        instr_lookup_table[0x26] = .{ Op.ROL, AddrMode.ZeroPage, 5 };
-        instr_lookup_table[0x36] = .{ Op.ROL, AddrMode.ZeroPageX, 6 };
-        instr_lookup_table[0x2E] = .{ Op.ROL, AddrMode.Absolute, 6 };
-        instr_lookup_table[0x3E] = .{ Op.ROL, AddrMode.AbsoluteX, 7 };
+        instr_lookup_table[0x2A] = .{ Op.ROL, Mode.Accumulator, 2 };
+        instr_lookup_table[0x26] = .{ Op.ROL, Mode.ZeroPage, 5 };
+        instr_lookup_table[0x36] = .{ Op.ROL, Mode.ZeroPageX, 6 };
+        instr_lookup_table[0x2E] = .{ Op.ROL, Mode.Absolute, 6 };
+        instr_lookup_table[0x3E] = .{ Op.ROL, Mode.AbsoluteX, 7 };
 
-        instr_lookup_table[0x6A] = .{ Op.ROR, AddrMode.Accumulator, 2 };
-        instr_lookup_table[0x66] = .{ Op.ROR, AddrMode.ZeroPage, 5 };
-        instr_lookup_table[0x76] = .{ Op.ROR, AddrMode.ZeroPageX, 6 };
-        instr_lookup_table[0x6E] = .{ Op.ROR, AddrMode.Absolute, 6 };
-        instr_lookup_table[0x7E] = .{ Op.ROR, AddrMode.AbsoluteX, 7 };
+        instr_lookup_table[0x6A] = .{ Op.ROR, Mode.Accumulator, 2 };
+        instr_lookup_table[0x66] = .{ Op.ROR, Mode.ZeroPage, 5 };
+        instr_lookup_table[0x76] = .{ Op.ROR, Mode.ZeroPageX, 6 };
+        instr_lookup_table[0x6E] = .{ Op.ROR, Mode.Absolute, 6 };
+        instr_lookup_table[0x7E] = .{ Op.ROR, Mode.AbsoluteX, 7 };
 
-        instr_lookup_table[0x40] = .{ Op.RTI, AddrMode.Implicit, 6 };
+        instr_lookup_table[0x40] = .{ Op.RTI, Mode.Implicit, 6 };
 
-        instr_lookup_table[0x60] = .{ Op.RTS, AddrMode.Implicit, 6 };
+        instr_lookup_table[0x60] = .{ Op.RTS, Mode.Implicit, 6 };
 
-        instr_lookup_table[0xE9] = .{ Op.SBC, AddrMode.Immediate, 2 };
-        instr_lookup_table[0xE5] = .{ Op.SBC, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0xF5] = .{ Op.SBC, AddrMode.ZeroPageX, 4 };
-        instr_lookup_table[0xED] = .{ Op.SBC, AddrMode.Absolute, 4 };
-        instr_lookup_table[0xFD] = .{ Op.SBC, AddrMode.AbsoluteX, 4 };
-        instr_lookup_table[0xF9] = .{ Op.SBC, AddrMode.AbsoluteY, 4 };
-        instr_lookup_table[0xE1] = .{ Op.SBC, AddrMode.IndirectX, 6 };
-        instr_lookup_table[0xF1] = .{ Op.SBC, AddrMode.IndirectY, 5 };
+        instr_lookup_table[0xE9] = .{ Op.SBC, Mode.Immediate, 2 };
+        instr_lookup_table[0xE5] = .{ Op.SBC, Mode.ZeroPage, 3 };
+        instr_lookup_table[0xF5] = .{ Op.SBC, Mode.ZeroPageX, 4 };
+        instr_lookup_table[0xED] = .{ Op.SBC, Mode.Absolute, 4 };
+        instr_lookup_table[0xFD] = .{ Op.SBC, Mode.AbsoluteX, 4 };
+        instr_lookup_table[0xF9] = .{ Op.SBC, Mode.AbsoluteY, 4 };
+        instr_lookup_table[0xE1] = .{ Op.SBC, Mode.IndirectX, 6 };
+        instr_lookup_table[0xF1] = .{ Op.SBC, Mode.IndirectY, 5 };
 
-        instr_lookup_table[0x38] = .{ Op.SEC, AddrMode.Implicit, 2 };
+        instr_lookup_table[0x38] = .{ Op.SEC, Mode.Implicit, 2 };
 
-        instr_lookup_table[0xF8] = .{ Op.SED, AddrMode.Implicit, 2 };
+        instr_lookup_table[0xF8] = .{ Op.SED, Mode.Implicit, 2 };
 
-        instr_lookup_table[0x78] = .{ Op.SEI, AddrMode.Implicit, 2 };
+        instr_lookup_table[0x78] = .{ Op.SEI, Mode.Implicit, 2 };
 
-        instr_lookup_table[0x85] = .{ Op.STA, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0x95] = .{ Op.STA, AddrMode.ZeroPageX, 4 };
-        instr_lookup_table[0x8D] = .{ Op.STA, AddrMode.Absolute, 4 };
-        instr_lookup_table[0x9D] = .{ Op.STA, AddrMode.AbsoluteX, 5 };
-        instr_lookup_table[0x99] = .{ Op.STA, AddrMode.AbsoluteY, 5 };
-        instr_lookup_table[0x81] = .{ Op.STA, AddrMode.IndirectX, 6 };
-        instr_lookup_table[0x91] = .{ Op.STA, AddrMode.IndirectY, 6 };
+        instr_lookup_table[0x85] = .{ Op.STA, Mode.ZeroPage, 3 };
+        instr_lookup_table[0x95] = .{ Op.STA, Mode.ZeroPageX, 4 };
+        instr_lookup_table[0x8D] = .{ Op.STA, Mode.Absolute, 4 };
+        instr_lookup_table[0x9D] = .{ Op.STA, Mode.AbsoluteX, 5 };
+        instr_lookup_table[0x99] = .{ Op.STA, Mode.AbsoluteY, 5 };
+        instr_lookup_table[0x81] = .{ Op.STA, Mode.IndirectX, 6 };
+        instr_lookup_table[0x91] = .{ Op.STA, Mode.IndirectY, 6 };
 
-        instr_lookup_table[0x86] = .{ Op.STX, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0x96] = .{ Op.STX, AddrMode.ZeroPageY, 4 };
-        instr_lookup_table[0x8E] = .{ Op.STX, AddrMode.Absolute, 4 };
+        instr_lookup_table[0x86] = .{ Op.STX, Mode.ZeroPage, 3 };
+        instr_lookup_table[0x96] = .{ Op.STX, Mode.ZeroPageY, 4 };
+        instr_lookup_table[0x8E] = .{ Op.STX, Mode.Absolute, 4 };
 
-        instr_lookup_table[0x84] = .{ Op.STY, AddrMode.ZeroPage, 3 };
-        instr_lookup_table[0x94] = .{ Op.STY, AddrMode.ZeroPageX, 4 };
-        instr_lookup_table[0x8C] = .{ Op.STY, AddrMode.Absolute, 4 };
+        instr_lookup_table[0x84] = .{ Op.STY, Mode.ZeroPage, 3 };
+        instr_lookup_table[0x94] = .{ Op.STY, Mode.ZeroPageX, 4 };
+        instr_lookup_table[0x8C] = .{ Op.STY, Mode.Absolute, 4 };
 
-        instr_lookup_table[0xAA] = .{ Op.TAX, AddrMode.Implicit, 2 };
+        instr_lookup_table[0xAA] = .{ Op.TAX, Mode.Implicit, 2 };
 
-        instr_lookup_table[0xA8] = .{ Op.TAY, AddrMode.Implicit, 2 };
+        instr_lookup_table[0xA8] = .{ Op.TAY, Mode.Implicit, 2 };
 
-        instr_lookup_table[0xBA] = .{ Op.TSX, AddrMode.Implicit, 2 };
+        instr_lookup_table[0xBA] = .{ Op.TSX, Mode.Implicit, 2 };
 
-        instr_lookup_table[0x8A] = .{ Op.TXA, AddrMode.Implicit, 2 };
+        instr_lookup_table[0x8A] = .{ Op.TXA, Mode.Implicit, 2 };
 
-        instr_lookup_table[0x9A] = .{ Op.TXS, AddrMode.Implicit, 2 };
+        instr_lookup_table[0x9A] = .{ Op.TXS, Mode.Implicit, 2 };
 
-        instr_lookup_table[0x98] = .{ Op.TYA, AddrMode.Implicit, 2 };
+        instr_lookup_table[0x98] = .{ Op.TYA, Mode.Implicit, 2 };
         return instr_lookup_table;
     }
 }
@@ -322,7 +323,7 @@ const BadInstruction = .{ Op.Unknown, AddrMode.Invalid, 0 };
 const lookup_table = makeLookupTable();
 
 // Decodes an instruction from its opcode.
-pub fn decodeInstruction(opcode: u8) !Instruction {
+pub fn decodeInstruction(opcode: u8) Instruction {
     return lookup_table[opcode];
 }
 
