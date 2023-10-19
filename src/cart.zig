@@ -142,9 +142,7 @@ pub const Cart = struct {
 };
 
 test "Cartridge loading: header" {
-    var allocator = std.testing.allocator;
-
-    var cart = try Cart.loadFromFile(allocator, "roms/super-mario-bros.nes");
+    var cart = try Cart.loadFromFile(T.allocator, "roms/super-mario-bros.nes");
     try T.expectEqual(Header.Magic{ .N = 'N', .E = 'E', .S = 'S', .EOF = 0x1A }, cart.header.NES);
     try T.expectEqual(@as(u8, 2), cart.header.prg_rom_size);
     try T.expectEqual(@as(u8, 1), cart.header.chr_rom_size);

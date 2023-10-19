@@ -1,44 +1,12 @@
 const std = @import("std");
+const opcodes = @import("opcode.zig");
+const cart = @import("cart.zig");
+
 const assert = std.debug.assert;
-const T = std.testing;
 const Allocator = std.mem.Allocator;
 
-// ref: https://www.nesdev.org/wiki/CPU_addressing_modes
-pub const AddrMode = enum {
-    Immediate,
-    Accumulator,
-    ZeroPage,
-    ZeroPageX,
-    ZeroPageY,
-    Absolute,
-    AbsoluteX,
-    AbsoluteY,
-    Indirect,
-    IndirectX,
-    IndirectY,
-    Relative,
-    Implicit,
-};
-
-// Useful reference: https://www.masswerk.at/6502/6502_instruction_set.html
-pub const Opcode = enum(u8) {
-    LDAimm = 0xA9,
-    LDAzrpg = 0xA5,
-
-    // JAMx instructions freeze the CPU
-    JAM0 = 0x02,
-    JAM1 = 0x12,
-    JAM2 = 0x22,
-    JAM3 = 0x32,
-    JAM4 = 0x42,
-    JAM5 = 0x52,
-    JAM6 = 0x62,
-    JAM7 = 0x72,
-    JAM9 = 0x92,
-    JAMB = 0xB2,
-    JAMD = 0xB2,
-    JAMF = 0xF2,
-};
+const AddrMode = opcodes.AddrMode;
+const Op = opcodes.Op;
 
 pub const Register = i8;
 pub const Byte = i8;
@@ -77,6 +45,8 @@ pub const CPU = struct {
     // each page in the RAM is 256 bytes.
     const PageSize = 256;
 
+    // number of cycles to cycles to wait
+    // before executing the next instruction.
     var cycles_to_wait = 0;
 
     // capacity of the RAM chip attached to the CPU (in bytes)
@@ -107,6 +77,8 @@ pub const CPU = struct {
         return self.RAM[addr];
     }
 
+    pub fn step() !void {}
+
     pub fn fetch_byte(self: *Self, mode: AddrMode, addr: u16) !Byte {
         return switch (mode) {
             .Immediate => NESError.Unreachable,
@@ -115,6 +87,8 @@ pub const CPU = struct {
         };
     }
 };
+
+const T = std.testing;
 
 test "Status Register" {
     try T.expectEqual(1, @sizeOf(StatusRegister));
