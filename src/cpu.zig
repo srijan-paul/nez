@@ -38,7 +38,11 @@ pub const StatusRegister = packed struct {
     }
 };
 
-pub const NESError = error{ InvalidAddressingMode, NotImplemented, Unreachable };
+pub const NESError = error{
+    InvalidAddressingMode,
+    NotImplemented,
+    Unreachable,
+};
 
 pub const CPU = struct {
     const Self = @This();
@@ -49,7 +53,8 @@ pub const CPU = struct {
     // before executing the next instruction.
     var cycles_to_wait = 0;
 
-    // capacity of the RAM chip attached to the CPU (in bytes)
+    // capacity of the RAM chip attached to the CPU in bytes
+    // (called SRAM (S = static), or WRAM(W = work))
     pub const WRamSize = 2048;
     RAM: [WRamSize]Byte = .{0} ** WRamSize,
 
@@ -64,7 +69,9 @@ pub const CPU = struct {
     S: Register = 0,
 
     P: Register = 0,
+
     PC: Register = 0,
+
     StatusRegister: StatusRegister = .{},
 
     allocator: Allocator,
@@ -77,13 +84,19 @@ pub const CPU = struct {
         return self.RAM[addr];
     }
 
+    pub fn memRead(self: *Self, addr: u16) Byte {
+        // TODO: implement the whole memory map: https://www.nesdev.org/wiki/CPU_memory_map
+        return self.RAM[addr];
+    }
+
     pub fn step() !void {}
 
-    pub fn fetch_byte(self: *Self, mode: AddrMode, addr: u16) !Byte {
+    // Fetch a byte of data from memory given an addressing mode.
+    //
+    pub fn readByte(self: *Self, mode: AddrMode) !u8 {
         return switch (mode) {
-            .Immediate => NESError.Unreachable,
             .Implicit => NESError.Unreachable,
-            .Absolute => self.index_memory(addr),
+            .Accumulator => self.Accumulator,
         };
     }
 };

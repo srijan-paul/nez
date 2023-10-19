@@ -53,6 +53,8 @@ pub const Flags7 = packed struct {
 pub const Header = packed struct {
     const Self = @This();
 
+    // A magic sequence of bytes in the beginning of every
+    // ROM file.
     pub const Magic = packed struct {
         N: u8 = 0,
         E: u8 = 0,
@@ -81,7 +83,7 @@ pub const Header = packed struct {
     _unused_prg_ram: u8 = 0,
 
     // Padding.
-    // These are actually used by the NES 2.0 header format:
+    // These bits are actually used by the NES 2.0 header format:
     // https://www.nesdev.org/wiki/NES_2.0
     // But NES 2.0 is backwards compatible with iNES, so we should
     // be good here.
@@ -92,6 +94,7 @@ pub const Header = packed struct {
     }
 };
 
+// Represents a NES Cartridge.
 pub const Cart = struct {
     header: Header,
     prg_rom: []const u8,
