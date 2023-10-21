@@ -1,8 +1,11 @@
 const std = @import("std");
-const assert = std.debug.assert;
-const T = std.testing;
+const util = @import("util.zig");
+
+const NESError = util.NESError;
 
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const T = std.testing;
 
 // https://www.nesdev.org/wiki/INES#Flags_6
 pub const Flags6 = packed struct {
@@ -92,6 +95,11 @@ pub const Header = packed struct {
     comptime {
         assert(@sizeOf(Self) == 16);
     }
+
+    /// check if the header is valid.
+    pub fn isValid(self: *Self) bool {
+        return self.NES.N == 'N' and self.NES.E == 'E' and self.NES.S == 'S' and self.NES.EOF == 0x1A;
+    }
 };
 
 // Represents a NES Cartridge.
@@ -112,6 +120,10 @@ pub const Cart = struct {
 
         var header: Header = @bitCast(buf);
 
+        if (!header.isValid()) {
+            return NESError.InvalidROM;
+        }
+
         if (header.flags_6.trainer) {
             // skip the trainer, if present.
             // TODO: actually load the trainer.
@@ -131,11 +143,11 @@ pub const Cart = struct {
         return Self{ .header = header, .prg_rom = prg_rom_buf, .allocator = allocator };
     }
 
-    pub fn free(self: *Self) !void {
+    pub fn deinit(self: *Self) void {
         self.allocator.free(self.prg_rom);
     }
 
-    // Get the mapper used in this cartridge.
+    // Get the mapper number used in this cartridge.
     // ref: https://www.nesdev.org/wiki/List_of_mappers
     pub fn getMapper(self: *Self) u8 {
         var lo: u8 = self.header.flags_6.mapper_lower;
@@ -146,12 +158,12 @@ pub const Cart = struct {
 
 test "Cartridge loading: header" {
     var cart = try Cart.loadFromFile(T.allocator, "roms/super-mario-bros.nes");
+    defer cart.deinit();
+
     try T.expectEqual(Header.Magic{ .N = 'N', .E = 'E', .S = 'S', .EOF = 0x1A }, cart.header.NES);
     try T.expectEqual(@as(u8, 2), cart.header.prg_rom_size);
     try T.expectEqual(@as(u8, 1), cart.header.chr_rom_size);
     try T.expectEqual(false, cart.header.flags_6.has_prg_ram);
     try T.expectEqual(true, cart.header.flags_6.mirroring_is_vertical);
     try T.expectEqual(@as(u8, 0), cart.getMapper());
-
-    try cart.free();
 }

@@ -1,6 +1,7 @@
 const std = @import("std");
 const opcode = @import("opcode.zig");
 const cart = @import("cart.zig");
+const util = @import("util.zig");
 
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -8,6 +9,7 @@ const Allocator = std.mem.Allocator;
 const AddrMode = opcode.AddrMode;
 const Op = opcode.Op;
 const Instruction = opcode.Instruction;
+const NESError = util.NESError;
 
 pub const Register = u8;
 pub const Byte = u8;
@@ -37,10 +39,6 @@ pub const StatusRegister = packed struct {
         assert(@sizeOf(Self) == 1);
         assert(@bitSizeOf(Self) == 8);
     }
-};
-
-pub const NESError = error{
-    NotImplemented,
 };
 
 pub const CPU = struct {
