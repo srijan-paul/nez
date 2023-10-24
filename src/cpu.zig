@@ -46,13 +46,12 @@ pub const CPU = struct {
     // each page in the RAM is 256 bytes.
     const PageSize = 256;
 
-    // number of cycles to cycles to wait
-    // before executing the next instruction.
-
     // capacity of the RAM chip attached to the CPU in bytes
     // (called SRAM (S = static), or WRAM(W = work))
-    pub const WRamSize = 2048;
+    pub const WRamSize = 0x800;
     RAM: [WRamSize]Byte = .{0} ** WRamSize,
+    // number of cycles to cycles to wait
+    // before executing the next instruction.
     cycles_to_wait: u8 = 0,
 
     // registers
@@ -81,8 +80,32 @@ pub const CPU = struct {
         return .{ .allocator = allocator };
     }
 
-    fn read(self: *Self, addr: u16) Byte {
-        return self.RAM[addr];
+    fn read(self: *Self, addr: u16) !Byte {
+        // RAM is mirrored every 0x800 bytes.
+        // ref: https://www.nesdev.org/wiki/CPU_memory_map
+        if (addr <= 0x1FFF) {
+            var index = addr % CPU.WRamSize;
+            return self.RAM[index];
+        }
+
+        // TODO: PPU: doesn't exist yet :)
+        if (addr >= 0x2000 and addr <= 0x3FFF) {
+            return NESError.NotImplemented;
+        }
+
+        // TODO: APU and I/O registers.
+        if (addr >= 0x4000 and addr <= 0x4017) {
+            return NESError.NotImplemented;
+        }
+
+        // These addresses are unused by most carts.
+        if (addr >= 0x4018 and addr <= 0x401F) {
+            return NESError.NotImplemented;
+        }
+
+        assert(addr >= 0x4020);
+
+        // All addresses above 0x4020 are mapped to cartridge space.
     }
 
     pub fn memRead(self: *Self, addr: u16) Byte {
@@ -119,7 +142,7 @@ pub const CPU = struct {
 
     /// Depending on the addressing mode of the instruction `instr`,
     /// get a byte of the data from memory.
-    fn readInstrOperand(self: *Self, instr: Instruction) !Byte {
+    fn readInstrOperand(self: *Self, instr: Instruction) Byte {
         var addr_mode = instr[1];
         switch (addr_mode) {
             .Immediate => {
@@ -206,14 +229,60 @@ pub const CPU = struct {
         }
     }
 
+    /// set the Z flag if the lower 8 bits of `value` are all 0.
+    fn setFlagZ(self: *Self, value: u16) void {
+        self.StatusRegister.Z = value & 0xFF == 0;
+    }
+
+    /// set the `N` flag if the 8th bit of `value` is 1.
+    fn setFlagN(self: *Self, value: u16) void {
+        self.StatusRegister.N = value & 0b1000_0000 != 0;
+    }
+
+    /// set the `C` flag if `value` is greater than 0xFF (u8 max).
+    fn setFlagC(self: *Self, value: u16) void {
+        self.StatusRegister.C = value > std.math.maxInt(Byte);
+    }
+
     /// Execute a single instruction.
     pub fn exec(self: *Self, instr: Instruction) !void {
         var op = instr[0];
         switch (op) {
+            Op.ADC => {
+                var byte: u16 = self.readInstrOperand(instr);
+                var carry: u16 = self.StatusRegister.C;
+                var sum: u16 = self.A + byte + carry;
+
+                self.setFlagZ(sum);
+                self.setFlagN(sum);
+                self.setFlagC(sum);
+
+                // drop the MSBs
+                self.A = @truncate(sum);
+            },
+
+            Op.AND => {
+                var byte = self.readInstrOperand(instr);
+                var result = self.A & byte;
+                self.A = result;
+                self.setFlagZ(result);
+                self.setFlagN(result);
+            },
+
+            Op.ASL => {
+                var byte: u16 = self.readInstrOperand(instr);
+                var result: u16 = byte << 1;
+                self.setFlagZ(result);
+                self.setFlagN(result);
+                self.setFlagC(result);
+                self.A = @truncate(result);
+            },
+
             Op.LDA => {
-                var byte = try self.readInstrOperand(instr);
+                var byte = self.readInstrOperand(instr);
                 self.A = byte;
-                self.setFlagsZN(byte);
+                self.setFlagZ(byte);
+                self.setFlagN(byte);
             },
 
             else => {

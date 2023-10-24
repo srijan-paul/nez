@@ -143,12 +143,13 @@ pub const Cart = struct {
         return Self{ .header = header, .prg_rom = prg_rom_buf, .allocator = allocator };
     }
 
+    /// free a cart from memory.
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.prg_rom);
     }
 
-    // Get the mapper number used in this cartridge.
-    // ref: https://www.nesdev.org/wiki/List_of_mappers
+    /// Get the mapper number used in this cartridge.
+    /// ref: https://www.nesdev.org/wiki/List_of_mappers
     pub fn getMapper(self: *Self) u8 {
         var lo: u8 = self.header.flags_6.mapper_lower;
         var hi: u8 = self.header.flags_7.mapper_upper;
