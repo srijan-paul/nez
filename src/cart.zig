@@ -140,7 +140,11 @@ pub const Cart = struct {
         bytes_read = try file.read(prg_rom_buf);
         assert(bytes_read == prg_rom_size);
 
-        return Self{ .header = header, .prg_rom = prg_rom_buf, .allocator = allocator };
+        return Self{
+            .header = header,
+            .prg_rom = prg_rom_buf,
+            .allocator = allocator,
+        };
     }
 
     /// free a cart from memory.

@@ -120,18 +120,6 @@ pub const CPU = struct {
         return byte;
     }
 
-    // set the Z and N status flags depending on `value`.
-    fn setFlagsZN(self: *Self, value: u8) void {
-        if (value == 0) {
-            self.StatusRegister.Z = true;
-        }
-
-        var signed: i8 = @bitCast(value);
-        if (signed < 0) {
-            self.StatusRegister.N = true;
-        }
-    }
-
     /// Fetch the next two bytes from the program counter,
     /// and stitch them together to get a 16 bit address from memory.
     fn getAddr16(self: *Self) u16 {
@@ -256,6 +244,7 @@ pub const CPU = struct {
                 self.setFlagZ(sum);
                 self.setFlagN(sum);
                 self.setFlagC(sum);
+                // TODO: set flag V, and add extra cycles based on mode.
 
                 // drop the MSBs
                 self.A = @truncate(sum);
