@@ -41,6 +41,17 @@ pub const StatusRegister = packed struct {
     }
 };
 
+// State of the CPU used for point-in-time tests.
+pub const CPUState = struct {
+    pc: u16,
+    s: u8,
+    a: u8,
+    x: u8,
+    y: u8,
+    p: u8,
+    ram: []struct { u16, u8 },
+};
+
 pub const CPU = struct {
     const Self = @This();
     // each page in the RAM is 256 bytes.
@@ -307,6 +318,46 @@ pub const CPU = struct {
             try self.step();
         }
     }
+
+    /// Using `initial_state` as the initial state of the CPU, execute exactly one instruction (at PC),
+    /// and return the final state of the CPU.
+    pub fn runFromState(self: *Self, initial_state: *CPUState) CPUState {
+        self.PC = initial_state.pc;
+        self.S = initial_state.s;
+        self.A = initial_state.a;
+        self.X = initial_state.x;
+        self.Y = initial_state.y;
+        self.P = initial_state.p;
+        self.StatusRegister = @bitCast(initial_state.p);
+
+        for (initial_state.ram) |*entry| {
+            var addr = entry[0];
+            var byte = entry[1];
+            self.RAM[addr] = byte;
+        }
+
+        try self.step();
+
+        var final_ram = self.allocator.alloc(struct { u16, u8 }, self.RAM.len);
+        defer self.allocator.free(final_ram);
+
+        for (0..initial_state.ram.len) |i| {
+            var entry = &initial_state.ram[i];
+            final_ram[i] = .{ entry[0], self.RAM[i] };
+        }
+
+        return .{
+            .pc = self.PC,
+            .s = self.S,
+            .a = self.A,
+            .x = self.X,
+            .y = self.Y,
+            .p = self.P,
+            // This is only ever used for testing,
+            // so I don't mind this copy.
+            .ram = *final_ram,
+        };
+    }
 };
 
 const T = std.testing;
@@ -344,4 +395,69 @@ test "CPU: load_and_run (LDA #$42)" {
     try cpu.load_and_run(&program);
     try T.expectEqual(@as(u8, 0x42), cpu.A);
     try T.expectEqual(@as(u16, 2), cpu.PC);
+}
+
+// Tests below are taken from: https://github.com/TomHarte/ProcessorTests/tree/main/nes6502
+// The files are in `tests/nes-6502-tests/` directory.
+const InstrTest = struct {
+    name: []u8,
+    initial: CPUState,
+    final: CPUState,
+};
+
+pub fn run_test(test_case: *InstrTest) !void {
+    var cpu = CPU.init(T.allocator);
+    var final = cpu.runFromState(&test_case.initial);
+    try T.expectEqualDeep(test_case.final, final);
+}
+
+test "lda (71),Y" {
+    var instr_test = .InstrTest{
+        .name = "b1 71 8b",
+        .initial = .{
+            .pc = 9023,
+            .s = 240,
+            .a = 47,
+            .x = 162,
+            .y = 170,
+            .p = 170,
+            .ram = .{
+                .{ 9023, 177 },
+                .{ 9024, 113 },
+                .{ 9025, 139 },
+                .{ 113, 169 },
+                .{ 114, 89 },
+                .{ 22867, 214 },
+                .{ 23123, 3 },
+            },
+        },
+        .final = .{
+            .pc = 9025,
+            .s = 240,
+            .a = 37,
+            .x = 162,
+            .y = 170,
+            .p = 40,
+            .ram = .{
+                .{ 9023, 177 },
+                .{ 9024, 113 },
+                .{ 9025, 139 },
+                .{ 113, 169 },
+                .{ 114, 89 },
+                .{ 22867, 214 },
+                .{ 23123, 3 },
+            },
+        },
+    };
+    run_test(&instr_test);
+}
+
+fn parseCPUTestCase(testcase_str: []const u8, allocator: Allocator) !std.json.Parsed([]InstrTest) {
+    const parsed = try std.json.parseFromSlice(
+        []InstrTest,
+        allocator,
+        testcase_str,
+        .{ .ignore_unknown_fields = true },
+    );
+    return parsed;
 }
