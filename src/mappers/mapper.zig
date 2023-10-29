@@ -7,6 +7,7 @@ pub const Mapper = struct {
 
     pub const ReadFn = fn (*Mapper, u16) u8;
     pub const WriteFn = fn (*Mapper, u16, u8) void;
+    pub const ResolveAddrFn = fn (*Mapper, u16) ?*u8;
 
     /// A pointer to the read-function implemented by
     /// the concrete mapper type.
@@ -35,5 +36,10 @@ pub const Mapper = struct {
     /// Write a byte of data to cartridge memory.
     pub fn write(self: *Self, addr: u16, value: u8) void {
         self.writeFn(self, addr, value);
+    }
+
+    /// Get an byte pointer to cartridge memory from an address.
+    pub fn resolveAddr(self: *Self, addr: u16) *u8 {
+        return self.resolveAddr(self, addr);
     }
 };

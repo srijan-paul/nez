@@ -2,6 +2,10 @@ const std = @import("std");
 const opcode = @import("opcode.zig");
 const cart = @import("cart.zig");
 const util = @import("util.zig");
+const bus_module = @import("bus.zig");
+
+const Bus = bus_module.Bus;
+const TestBus = bus_module.TestBus;
 
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -15,24 +19,21 @@ pub const Register = u8;
 pub const Byte = u8;
 
 pub const StatusRegister = packed struct {
-    // Negative Flag
-    N: bool = false,
-    // Overflow Flag
-    V: bool = false,
-
-    // This status flag does nothing, and is always set to 1.
-    _: bool = true,
-    // B-Flag. Not used by the user.
-    B: bool = false,
-    // Decimal Mode
-    D: bool = false,
-
-    // Interrupt Disable
-    I: bool = false,
-    // Zero Flag
-    Z: bool = false,
     // Carry Flag
     C: bool = false,
+    // Zero Flag
+    Z: bool = false,
+    // Interrupt Disable
+    I: bool = false,
+    D: bool = false,
+    B: bool = false,
+    // This status flag does nothing, and is always set to 1.
+    // B-Flag. Not used by the user.
+    _: bool = true,
+    // Overflow Flag
+    V: bool = false,
+    // Negative Flag
+    N: bool = false,
 
     const Self = @This();
     comptime {
@@ -43,13 +44,15 @@ pub const StatusRegister = packed struct {
 
 // State of the CPU used for point-in-time tests.
 pub const CPUState = struct {
+    const Self = @This();
+    const Cell = struct { u16, u8 };
     pc: u16,
     s: u8,
     a: u8,
     x: u8,
     y: u8,
     p: u8,
-    ram: []struct { u16, u8 },
+    ram: []Cell,
 };
 
 pub const CPU = struct {
@@ -78,55 +81,32 @@ pub const CPU = struct {
     // when somethig is pushed onto the stack.
     S: Register = 0,
 
-    P: Register = 0,
-
     // The program counter is 16 bit, since it holds an address.
     PC: u16 = 0,
 
     StatusRegister: StatusRegister = .{},
 
+    bus: *Bus,
+
     allocator: Allocator,
 
-    pub fn init(allocator: Allocator) Self {
-        return .{ .allocator = allocator };
+    pub fn init(allocator: Allocator, bus: *Bus) Self {
+        return .{ .allocator = allocator, .bus = bus };
     }
 
-    fn read(self: *Self, addr: u16) !Byte {
-        // RAM is mirrored every 0x800 bytes.
-        // ref: https://www.nesdev.org/wiki/CPU_memory_map
-        if (addr <= 0x1FFF) {
-            var index = addr % CPU.WRamSize;
-            return self.RAM[index];
-        }
-
-        // TODO: PPU: doesn't exist yet :)
-        if (addr >= 0x2000 and addr <= 0x3FFF) {
-            return NESError.NotImplemented;
-        }
-
-        // TODO: APU and I/O registers.
-        if (addr >= 0x4000 and addr <= 0x4017) {
-            return NESError.NotImplemented;
-        }
-
-        // These addresses are unused by most carts.
-        if (addr >= 0x4018 and addr <= 0x401F) {
-            return NESError.NotImplemented;
-        }
-
-        assert(addr >= 0x4020);
-
-        // All addresses above 0x4020 are mapped to cartridge space.
-    }
-
+    /// Read a byte of data from `addr` in memory.
     pub fn memRead(self: *Self, addr: u16) Byte {
-        // TODO: implement the whole memory map: https://www.nesdev.org/wiki/CPU_memory_map
-        return self.RAM[addr];
+        return self.bus.read(addr);
+    }
+
+    /// Write a byte of data to `addr` in memory.
+    pub fn memWrite(self: *Self, addr: u16, byte: Byte) void {
+        self.bus.write(addr, byte);
     }
 
     // fetch the next byte to execute.
     fn nextOp(self: *Self) Byte {
-        var byte = self.read(self.PC);
+        var byte = self.memRead(self.PC);
         self.PC += 1;
         return byte;
     }
@@ -139,6 +119,7 @@ pub const CPU = struct {
         return low | (high << 8);
     }
 
+    // TODO: rename to `readByte`?
     /// Depending on the addressing mode of the instruction `instr`,
     /// get a byte of the data from memory.
     fn readInstrOperand(self: *Self, instr: Instruction) Byte {
@@ -249,7 +230,7 @@ pub const CPU = struct {
         switch (op) {
             Op.ADC => {
                 var byte: u16 = self.readInstrOperand(instr);
-                var carry: u16 = self.StatusRegister.C;
+                var carry: u16 = if (self.StatusRegister.C) 1 else 0;
                 var sum: u16 = self.A + byte + carry;
 
                 self.setFlagZ(sum);
@@ -308,9 +289,9 @@ pub const CPU = struct {
     /// The program is loaded onto the first page of the RAM,
     /// and the program counter is set to 0.
     pub fn load_and_run(self: *Self, program: []const u8) !void {
-        var num_instrs = @min(program.len, self.RAM.len);
+        var num_instrs = program.len;
         for (0..num_instrs) |i| {
-            self.RAM[i] = program[i];
+            self.memWrite(@truncate(i), program[i]);
         }
         self.PC = 0;
 
@@ -321,29 +302,29 @@ pub const CPU = struct {
 
     /// Using `initial_state` as the initial state of the CPU, execute exactly one instruction (at PC),
     /// and return the final state of the CPU.
-    pub fn runFromState(self: *Self, initial_state: *CPUState) CPUState {
+    pub fn runFromState(self: *Self, initial_state: *CPUState) !CPUState {
         self.PC = initial_state.pc;
         self.S = initial_state.s;
         self.A = initial_state.a;
         self.X = initial_state.x;
         self.Y = initial_state.y;
-        self.P = initial_state.p;
         self.StatusRegister = @bitCast(initial_state.p);
 
         for (initial_state.ram) |*entry| {
             var addr = entry[0];
             var byte = entry[1];
-            self.RAM[addr] = byte;
+            self.memWrite(addr, byte);
         }
 
         try self.step();
 
-        var final_ram = self.allocator.alloc(struct { u16, u8 }, self.RAM.len);
-        defer self.allocator.free(final_ram);
+        var final_ram = try self.allocator.alloc(struct { u16, u8 }, initial_state.ram.len);
 
         for (0..initial_state.ram.len) |i| {
             var entry = &initial_state.ram[i];
-            final_ram[i] = .{ entry[0], self.RAM[i] };
+            var addr = entry[0];
+            assert(i < final_ram.len);
+            final_ram[i] = .{ entry[0], self.memRead(addr) };
         }
 
         return .{
@@ -352,10 +333,10 @@ pub const CPU = struct {
             .a = self.A,
             .x = self.X,
             .y = self.Y,
-            .p = self.P,
+            .p = @bitCast(self.StatusRegister),
             // This is only ever used for testing,
             // so I don't mind this copy.
-            .ram = *final_ram,
+            .ram = final_ram,
         };
     }
 };
@@ -368,18 +349,19 @@ test "Status Register" {
 }
 
 test "CPU:init" {
-    var cpu = CPU.init(T.allocator);
-    try T.expectEqual(cpu.RAM.len, 2048);
+    var tbus = TestBus.new();
+    var cpu = CPU.init(T.allocator, &tbus.bus);
 
-    for (cpu.RAM) |byte| {
-        try T.expectEqual(@as(Byte, 0), byte);
+    for (0..0x800) |byte| {
+        try T.expectEqual(@as(u8, 0), cpu.memRead(@truncate(byte)));
     }
 }
 
 test "CPU:nextOp" {
-    var cpu = CPU.init(T.allocator);
+    var tbus = TestBus.new();
+    var cpu = CPU.init(T.allocator, &tbus.bus);
     var op: Byte = 0x42;
-    cpu.RAM[0] = op;
+    tbus.mem[0] = op;
     cpu.PC = 0;
 
     try T.expectEqual(op, cpu.nextOp());
@@ -387,7 +369,8 @@ test "CPU:nextOp" {
 }
 
 test "CPU: load_and_run (LDA #$42)" {
-    var cpu = CPU.init(T.allocator);
+    var tbus = TestBus.new();
+    var cpu = CPU.init(T.allocator, &tbus.bus);
 
     // LDA #$42
     var program = [_]u8{ 0xA9, 0x42 };
@@ -400,37 +383,63 @@ test "CPU: load_and_run (LDA #$42)" {
 // Tests below are taken from: https://github.com/TomHarte/ProcessorTests/tree/main/nes6502
 // The files are in `tests/nes-6502-tests/` directory.
 const InstrTest = struct {
-    name: []u8,
+    name: []const u8,
     initial: CPUState,
     final: CPUState,
 };
 
 pub fn run_test(test_case: *InstrTest) !void {
-    var cpu = CPU.init(T.allocator);
-    var final = cpu.runFromState(&test_case.initial);
-    try T.expectEqualDeep(test_case.final, final);
+    var tbus = TestBus.new();
+    var cpu = CPU.init(T.allocator, &tbus.bus);
+    var received = try cpu.runFromState(&test_case.initial);
+    defer T.allocator.free(received.ram);
+    var expected = &test_case.final;
+
+    try T.expectEqual(expected.pc, received.pc);
+    try T.expectEqual(expected.s, received.s);
+    try T.expectEqual(expected.a, received.a);
+    try T.expectEqual(expected.x, received.x);
+    try T.expectEqual(expected.y, received.y);
+    try T.expectEqual(expected.p, received.p);
+    try T.expectEqual(expected.ram.len, received.ram.len);
+    for (expected.ram) |e| {
+        var found = false;
+        for (received.ram) |r| {
+            if (e[0] == r[0]) {
+                try T.expectEqual(e[1], r[1]);
+                found = true;
+            }
+        }
+        try T.expect(found);
+    }
 }
 
 test "lda (71),Y" {
-    var instr_test = .InstrTest{
-        .name = "b1 71 8b",
-        .initial = .{
-            .pc = 9023,
-            .s = 240,
-            .a = 47,
-            .x = 162,
-            .y = 170,
-            .p = 170,
-            .ram = .{
-                .{ 9023, 177 },
-                .{ 9024, 113 },
-                .{ 9025, 139 },
-                .{ 113, 169 },
-                .{ 114, 89 },
-                .{ 22867, 214 },
-                .{ 23123, 3 },
-            },
-        },
+    var init_ram = [_]CPUState.Cell{
+        .{ 9023, 177 },
+        .{ 9024, 113 },
+        .{ 9025, 139 },
+        .{ 113, 169 },
+        .{ 114, 89 },
+        .{ 22867, 214 },
+        .{ 23123, 37 },
+    };
+
+    var final_ram = [_]CPUState.Cell{
+        .{ 9023, 177 },
+        .{ 9024, 113 },
+        .{ 9025, 139 },
+        .{ 113, 169 },
+        .{ 114, 89 },
+        .{ 22867, 214 },
+        .{ 23123, 37 },
+    };
+
+    const name: []const u8 = "lda (71),Y";
+
+    var test_case = InstrTest{
+        .name = name,
+        .initial = .{ .pc = 9023, .s = 240, .a = 47, .x = 162, .y = 170, .p = 170, .ram = &init_ram },
         .final = .{
             .pc = 9025,
             .s = 240,
@@ -438,18 +447,10 @@ test "lda (71),Y" {
             .x = 162,
             .y = 170,
             .p = 40,
-            .ram = .{
-                .{ 9023, 177 },
-                .{ 9024, 113 },
-                .{ 9025, 139 },
-                .{ 113, 169 },
-                .{ 114, 89 },
-                .{ 22867, 214 },
-                .{ 23123, 3 },
-            },
+            .ram = &final_ram,
         },
     };
-    run_test(&instr_test);
+    try run_test(&test_case);
 }
 
 fn parseCPUTestCase(testcase_str: []const u8, allocator: Allocator) !std.json.Parsed([]InstrTest) {
