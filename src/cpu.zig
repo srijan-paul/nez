@@ -107,7 +107,9 @@ pub const CPU = struct {
     // fetch the next byte to execute.
     fn nextOp(self: *Self) Byte {
         var byte = self.memRead(self.PC);
-        self.PC += 1;
+        var next_pc = @addWithOverflow(self.PC, @as(u16, 1));
+        // That's right, The 'V' flag is not set if the PC overflows.
+        self.PC = next_pc[0];
         return byte;
     }
 
@@ -288,7 +290,7 @@ pub const CPU = struct {
     /// Executes the program present in the `program` buffer.
     /// The program is loaded onto the first page of the RAM,
     /// and the program counter is set to 0.
-    pub fn load_and_run(self: *Self, program: []const u8) !void {
+    pub fn loadAndRun(self: *Self, program: []const u8) !void {
         var num_instrs = program.len;
         for (0..num_instrs) |i| {
             self.memWrite(@truncate(i), program[i]);
@@ -302,7 +304,7 @@ pub const CPU = struct {
 
     /// Using `initial_state` as the initial state of the CPU, execute exactly one instruction (at PC),
     /// and return the final state of the CPU.
-    pub fn runFromState(self: *Self, initial_state: *CPUState) !CPUState {
+    pub fn runFromState(self: *Self, initial_state: *const CPUState) !CPUState {
         self.PC = initial_state.pc;
         self.S = initial_state.s;
         self.A = initial_state.a;
@@ -334,8 +336,6 @@ pub const CPU = struct {
             .x = self.X,
             .y = self.Y,
             .p = @bitCast(self.StatusRegister),
-            // This is only ever used for testing,
-            // so I don't mind this copy.
             .ram = final_ram,
         };
     }
@@ -368,14 +368,14 @@ test "CPU:nextOp" {
     try T.expectEqual(@as(u16, 1), cpu.PC);
 }
 
-test "CPU: load_and_run (LDA #$42)" {
+test "CPU: loadAndRun (LDA #$42)" {
     var tbus = TestBus.new();
     var cpu = CPU.init(T.allocator, &tbus.bus);
 
     // LDA #$42
     var program = [_]u8{ 0xA9, 0x42 };
 
-    try cpu.load_and_run(&program);
+    try cpu.loadAndRun(&program);
     try T.expectEqual(@as(u8, 0x42), cpu.A);
     try T.expectEqual(@as(u16, 2), cpu.PC);
 }
@@ -388,7 +388,50 @@ const InstrTest = struct {
     final: CPUState,
 };
 
-pub fn run_test(test_case: *InstrTest) !void {
+fn parseCPUTestCase(allocator: Allocator, testcase_str: []const u8) !std.json.Parsed([]InstrTest) {
+    const parsed = try std.json.parseFromSlice(
+        []InstrTest,
+        allocator,
+        testcase_str,
+        .{ .ignore_unknown_fields = true },
+    );
+    return parsed;
+}
+
+pub fn runTestsForInstruction(instr_hex: []const u8) !void {
+    var instr_file = try std.mem.concat(
+        T.allocator,
+        u8,
+        &[_][]const u8{ instr_hex, ".json" },
+    );
+    defer T.allocator.free(instr_file);
+
+    var file_path = try std.fs.path.join(
+        T.allocator,
+        &[_][]const u8{
+            "src",
+            "tests",
+            "nes-6502-tests",
+            instr_file,
+        },
+    );
+    defer T.allocator.free(file_path);
+
+    var contents = try std.fs.cwd().readFileAlloc(T.allocator, file_path, std.math.maxInt(usize));
+    defer T.allocator.free(contents);
+
+    var parsed = try parseCPUTestCase(T.allocator, contents);
+    defer parsed.deinit();
+
+    for (0..parsed.value.len) |i| {
+        if (runTestCase(&parsed.value[i])) |_| {} else |err| {
+            std.debug.print("Failed to run test case {d} for instruction {s}\n", .{ i, instr_hex });
+            return err;
+        }
+    }
+}
+
+pub fn runTestCase(test_case: *const InstrTest) !void {
     var tbus = TestBus.new();
     var cpu = CPU.init(T.allocator, &tbus.bus);
     var received = try cpu.runFromState(&test_case.initial);
@@ -450,15 +493,9 @@ test "lda (71),Y" {
             .ram = &final_ram,
         },
     };
-    try run_test(&test_case);
+    try runTestCase(&test_case);
 }
 
-fn parseCPUTestCase(testcase_str: []const u8, allocator: Allocator) !std.json.Parsed([]InstrTest) {
-    const parsed = try std.json.parseFromSlice(
-        []InstrTest,
-        allocator,
-        testcase_str,
-        .{ .ignore_unknown_fields = true },
-    );
-    return parsed;
+test "all supported instructions" {
+    try runTestsForInstruction("a9");
 }

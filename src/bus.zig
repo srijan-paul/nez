@@ -27,7 +27,7 @@ pub const Bus = struct {
 /// a dummy bus used for testing with the ProcessorTests test suite.
 pub const TestBus = struct {
     const Self = @This();
-    mem: [std.math.maxInt(u16)]u8 = .{0} ** std.math.maxInt(u16),
+    mem: [std.math.maxInt(u16) + 1]u8 = .{0} ** (std.math.maxInt(u16) + 1),
     bus: Bus,
 
     fn resolveAddr(i_bus: *Bus, addr: u16) *u8 {
