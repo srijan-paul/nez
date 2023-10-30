@@ -104,12 +104,18 @@ pub const CPU = struct {
         self.bus.write(addr, byte);
     }
 
+    fn resolveAddr(self: *Self, addr: u16) *u8 {
+        return self.bus.resolveAddr(addr);
+    }
+
+    fn incPC(self: *Self) void {
+        self.PC = @addWithOverflow(self.PC, @as(u16, 1))[0];
+    }
+
     // fetch the next byte to execute.
     fn nextOp(self: *Self) Byte {
         var byte = self.memRead(self.PC);
-        var next_pc = @addWithOverflow(self.PC, @as(u16, 1));
-        // That's right, The 'V' flag is not set if the PC overflows.
-        self.PC = next_pc[0];
+        self.incPC();
         return byte;
     }
 
@@ -121,40 +127,39 @@ pub const CPU = struct {
         return low | (high << 8);
     }
 
-    // TODO: rename to `readByte`?
-    /// Depending on the addressing mode of the instruction `instr`,
-    /// get a byte of the data from memory.
-    fn readInstrOperand(self: *Self, instr: Instruction) Byte {
+    fn operandPtr(self: *Self, instr: Instruction) *u8 {
         var addr_mode = instr[1];
         switch (addr_mode) {
             .Immediate => {
-                return self.nextOp();
+                var ptr = self.resolveAddr(self.PC);
+                self.incPC();
+                return ptr;
             },
 
             .Accumulator => {
-                return self.A;
+                return &self.A;
             },
 
             .Absolute => {
                 var addr = self.getAddr16();
-                return self.memRead(addr);
+                return self.resolveAddr(addr);
             },
 
             .AbsoluteX => {
                 var addr = self.getAddr16();
-                addr += self.X;
-                return self.memRead(addr);
+                addr = @addWithOverflow(addr, self.X)[0];
+                return self.resolveAddr(addr);
             },
 
             .AbsoluteY => {
                 var addr = self.getAddr16();
-                addr += self.Y;
-                return self.memRead(addr);
+                addr = @addWithOverflow(addr, self.Y)[0];
+                return self.resolveAddr(addr);
             },
 
             .ZeroPage => {
                 var addr = self.nextOp();
-                return self.memRead(addr);
+                return self.resolveAddr(addr);
             },
 
             .ZeroPageX => {
@@ -163,7 +168,7 @@ pub const CPU = struct {
                 // zero page addressed reads cannot
                 // cross page boundaries.
                 addr = addr % CPU.PageSize;
-                return self.memRead(addr);
+                return self.resolveAddr(addr);
             },
 
             .ZeroPageY => {
@@ -172,12 +177,11 @@ pub const CPU = struct {
                 // zero page addressed reads cannot
                 // cross page boundaries.
                 addr = addr % CPU.PageSize;
-                return self.memRead(addr);
+                return self.resolveAddr(addr);
             },
 
             .Relative => {
-                var byte = self.nextOp();
-                return byte;
+                unreachable;
             },
 
             .Indirect => {
@@ -185,30 +189,38 @@ pub const CPU = struct {
                 var low: u16 = self.memRead(addr);
                 var high: u16 = self.memRead(addr + 1);
                 var final_addr = low | (high << 8);
-                return self.memRead(final_addr);
+                return self.resolveAddr(final_addr);
             },
 
             // TODO: support zero page wrap around.
             .IndirectX => {
-                var addr = self.nextOp() + self.X;
+                var addr: u8 = @truncate(self.nextOp() + @as(u16, self.X));
                 var low: u16 = self.memRead(addr);
-                var high: u16 = self.memRead(addr + 1);
+                var next_addr = @addWithOverflow(addr, 1)[0];
+                var high: u16 = self.memRead(next_addr);
                 var final_addr = low | (high << 8);
-                return self.memRead(final_addr);
+                return self.resolveAddr(final_addr);
             },
 
             // TODO: support zero page wrap around.
             .IndirectY => {
                 var addr = self.nextOp();
                 var low: u16 = self.memRead(addr);
-                var high: u16 = self.memRead(addr + 1);
-                var final_addr = (low | (high << 8)) + self.Y;
-                return self.memRead(final_addr);
+                var high: u16 = self.memRead(@addWithOverflow(addr, 1)[0]);
+                var final_addr = @addWithOverflow((low | (high << 8)), self.Y)[0];
+                return self.resolveAddr(final_addr);
             },
 
             .Implicit => unreachable,
             .Invalid => unreachable,
         }
+    }
+
+    // TODO: rename to `readByte`?
+    /// Depending on the addressing mode of the instruction `instr`,
+    /// get a byte of the data from memory.
+    fn operand(self: *Self, instr: Instruction) Byte {
+        return self.operandPtr(instr).*;
     }
 
     /// set the Z flag if the lower 8 bits of `value` are all 0.
@@ -231,7 +243,7 @@ pub const CPU = struct {
         var op = instr[0];
         switch (op) {
             Op.ADC => {
-                var byte: u16 = self.readInstrOperand(instr);
+                var byte: u16 = self.operand(instr);
                 var carry: u16 = if (self.StatusRegister.C) 1 else 0;
                 var sum: u16 = self.A + byte + carry;
 
@@ -245,7 +257,7 @@ pub const CPU = struct {
             },
 
             Op.AND => {
-                var byte = self.readInstrOperand(instr);
+                var byte = self.operand(instr);
                 var result = self.A & byte;
                 self.A = result;
                 self.setFlagZ(result);
@@ -253,7 +265,7 @@ pub const CPU = struct {
             },
 
             Op.ASL => {
-                var byte: u16 = self.readInstrOperand(instr);
+                var byte: u16 = self.operand(instr);
                 var result: u16 = byte << 1;
                 self.setFlagZ(result);
                 self.setFlagN(result);
@@ -262,10 +274,50 @@ pub const CPU = struct {
             },
 
             Op.LDA => {
-                var byte = self.readInstrOperand(instr);
+                var byte = self.operand(instr);
                 self.A = byte;
                 self.setFlagZ(byte);
                 self.setFlagN(byte);
+            },
+
+            Op.LDX => {
+                var byte = self.operand(instr);
+                self.X = byte;
+                self.setFlagZ(byte);
+                self.setFlagN(byte);
+            },
+
+            Op.LDY => {
+                var byte = self.operand(instr);
+                self.Y = byte;
+                self.setFlagZ(byte);
+                self.setFlagN(byte);
+            },
+
+            Op.LSR => {
+                var dst = self.operandPtr(instr);
+                self.StatusRegister.C = (dst.* & 0b0000_0001) == 1;
+                var res = dst.* >> 1;
+                dst.* = res;
+                self.setFlagZ(res);
+                self.setFlagN(res);
+            },
+
+            Op.NOP => {},
+
+            Op.ORA => {
+                var byte = self.operand(instr);
+                var result = self.A | byte;
+                self.A = result;
+                self.setFlagZ(result);
+                self.setFlagN(result);
+            },
+
+            Op.PHA => {
+                var addr = @addWithOverflow(0x100, @as(u16, self.S))[0];
+                self.memWrite(addr, self.A);
+                // decrement the stack pointer.
+                self.S = @subWithOverflow(self.S, 1)[0];
             },
 
             else => {
@@ -444,16 +496,11 @@ pub fn runTestCase(test_case: *const InstrTest) !void {
     try T.expectEqual(expected.x, received.x);
     try T.expectEqual(expected.y, received.y);
     try T.expectEqual(expected.p, received.p);
-    try T.expectEqual(expected.ram.len, received.ram.len);
-    for (expected.ram) |e| {
-        var found = false;
-        for (received.ram) |r| {
-            if (e[0] == r[0]) {
-                try T.expectEqual(e[1], r[1]);
-                found = true;
-            }
-        }
-        try T.expect(found);
+    for (expected.ram) |*cell| {
+        var addr = cell[0];
+        var expected_byte = cell[1];
+        var received_byte = cpu.memRead(addr);
+        try T.expectEqual(expected_byte, received_byte);
     }
 }
 
@@ -496,6 +543,55 @@ test "lda (71),Y" {
     try runTestCase(&test_case);
 }
 
-test "all supported instructions" {
+test "LDA" {
+    // LDA
     try runTestsForInstruction("a9");
+    try runTestsForInstruction("a5");
+    try runTestsForInstruction("b5");
+    try runTestsForInstruction("ad");
+    try runTestsForInstruction("bd");
+    try runTestsForInstruction("b9");
+    try runTestsForInstruction("a1");
+    try runTestsForInstruction("b1");
+}
+
+test "LDX" {
+    try runTestsForInstruction("a2");
+    try runTestsForInstruction("a6");
+    try runTestsForInstruction("b6");
+    try runTestsForInstruction("ae");
+    try runTestsForInstruction("be");
+}
+
+test "LDY" {
+    try runTestsForInstruction("a0");
+    try runTestsForInstruction("a4");
+    try runTestsForInstruction("b4");
+    try runTestsForInstruction("ac");
+    try runTestsForInstruction("bc");
+}
+
+test "LSR" {
+    try runTestsForInstruction("4a");
+    try runTestsForInstruction("46");
+    try runTestsForInstruction("56");
+    try runTestsForInstruction("4e");
+    try runTestsForInstruction("5e");
+}
+
+test "ORA" {
+    try runTestsForInstruction("09");
+    try runTestsForInstruction("05");
+    try runTestsForInstruction("15");
+    try runTestsForInstruction("0d");
+    try runTestsForInstruction("19");
+    try runTestsForInstruction("01");
+    try runTestsForInstruction("1d");
+    try runTestsForInstruction("19");
+    try runTestsForInstruction("01");
+    try runTestsForInstruction("11");
+}
+
+test "PHA" {
+    try runTestsForInstruction("48");
 }
