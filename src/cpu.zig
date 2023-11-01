@@ -394,6 +394,83 @@ pub const CPU = struct {
                 dst.* = res;
             },
 
+            Op.RTI => {
+                self.StatusRegister = @bitCast(self.pop());
+                self.StatusRegister._ = true;
+                self.StatusRegister.B = false;
+                var lo: u16 = self.pop();
+                var hi: u16 = self.pop();
+                self.PC = (hi << 8) | lo;
+            },
+
+            Op.RTS => {
+                var lo: u16 = self.pop();
+                var hi: u16 = self.pop();
+                self.PC = (hi << 8) | lo;
+                self.incPC();
+            },
+
+            Op.SEC => {
+                self.StatusRegister.C = true;
+            },
+
+            Op.SED => {
+                self.StatusRegister.D = true;
+            },
+
+            Op.SEI => {
+                self.StatusRegister.I = true;
+            },
+
+            Op.STA => {
+                var dst = self.operandPtr(instr);
+                dst.* = self.A;
+            },
+
+            Op.STX => {
+                var dst = self.operandPtr(instr);
+                dst.* = self.X;
+            },
+
+            Op.STY => {
+                var dst = self.operandPtr(instr);
+                dst.* = self.Y;
+            },
+
+            Op.TAX => {
+                self.X = self.A;
+                self.setFlagZ(self.X);
+                self.setFlagN(self.X);
+            },
+
+            Op.TAY => {
+                self.Y = self.A;
+                self.setFlagZ(self.Y);
+                self.setFlagN(self.Y);
+            },
+
+            Op.TSX => {
+                self.X = self.S;
+                self.setFlagZ(self.X);
+                self.setFlagN(self.X);
+            },
+
+            Op.TXA => {
+                self.A = self.X;
+                self.setFlagZ(self.A);
+                self.setFlagN(self.A);
+            },
+
+            Op.TXS => {
+                self.S = self.X;
+            },
+
+            Op.TYA => {
+                self.A = self.Y;
+                self.setFlagZ(self.A);
+                self.setFlagN(self.A);
+            },
+
             else => {
                 return NESError.NotImplemented;
             },
@@ -618,6 +695,58 @@ test "lda (71),Y" {
         },
     };
     try runTestCase(&test_case);
+}
+
+test "RTI, RTS" {
+    try runTestsForInstruction("40");
+    try runTestsForInstruction("60");
+}
+
+//test "SBC" {
+//try runTestsForInstruction("e9");
+//try runTestsForInstruction("e5");
+//try runTestsForInstruction("f5");
+//try runTestsForInstruction("ed");
+//try runTestsForInstruction("fd");
+//try runTestsForInstruction("f9");
+//try runTestsForInstruction("e1");
+//try runTestsForInstruction("f1");
+//}
+
+test "SEC, SED, SEI" {
+    try runTestsForInstruction("38");
+    try runTestsForInstruction("f8");
+    try runTestsForInstruction("78");
+}
+
+test "STA, STX, STY" {
+    // STA
+    try runTestsForInstruction("85");
+    try runTestsForInstruction("95");
+    try runTestsForInstruction("8d");
+    try runTestsForInstruction("9d");
+    try runTestsForInstruction("99");
+    try runTestsForInstruction("81");
+    try runTestsForInstruction("91");
+
+    // STX
+    try runTestsForInstruction("86");
+    try runTestsForInstruction("96");
+    try runTestsForInstruction("8e");
+
+    // STY
+    try runTestsForInstruction("84");
+    try runTestsForInstruction("94");
+    try runTestsForInstruction("8c");
+}
+
+test "TAX, TAY, TSX, TXA, TXS, TYA" {
+    try runTestsForInstruction("aa");
+    try runTestsForInstruction("a8");
+    try runTestsForInstruction("ba");
+    try runTestsForInstruction("8a");
+    try runTestsForInstruction("9a");
+    try runTestsForInstruction("98");
 }
 
 test "ROL, ROR" {
