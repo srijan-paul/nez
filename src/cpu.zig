@@ -289,12 +289,22 @@ pub const CPU = struct {
                 var carry: u16 = if (self.StatusRegister.C) 1 else 0;
                 var sum: u16 = self.A + byte + carry;
 
-                self.setFlagZ(sum);
-                self.setFlagN(sum);
+                self.setFlagZN(sum);
                 self.setFlagC(sum);
-                // TODO: set flag V, and add extra cycles based on mode.
+                self.StatusRegister.V = ((self.A ^ sum) & (byte ^ sum) & 0b1000_0000) != 0;
 
-                // drop the MSBs
+                self.A = @truncate(sum);
+            },
+
+            Op.SBC => {
+                var byte: u16 = self.operand(instr);
+                var carry: u16 = if (self.StatusRegister.C) 1 else 0;
+                var sum: u16 = self.A - byte - (1 - carry);
+
+                self.setFlagZN(sum);
+                self.setFlagC(sum);
+                self.StatusRegister.V = ((self.A ^ sum) & (byte ^ sum) & 0b1000_0000) != 0;
+
                 self.A = @truncate(sum);
             },
 
@@ -348,7 +358,29 @@ pub const CPU = struct {
             },
 
             Op.BRK => {
-                // TODO:
+                // Contrary to what most of the online documentations state,
+                // the BRK instruction is a TWO byte opcode.
+                // The first byte is the opcode itself, and the second byte
+                // is a padding byte that is ignored by the CPU.
+                // Ref: https://www.nesdev.org/the%20%27B%27%20flag%20&%20BRK%20instruction.txt
+                self.incPC();
+                self.push(@truncate(self.PC >> 8)); // high byte
+                self.push(@truncate(self.PC)); // low byte
+
+                // There is actual "B" flag in a physical 6502 CPU.
+                // It is merely a bit that exists in the *flag byte*
+                // that is pushed onto the stack.
+                // When flags are restored (following an RTI), the
+                // B bit is discarded.
+                var flags = self.StatusRegister;
+                flags.B = true;
+                self.push(@bitCast(flags));
+
+                var lo: u16 = self.memRead(0xFFFE);
+                var hi: u16 = self.memRead(0xFFFF);
+                self.PC = (hi << 8) | lo;
+                self.StatusRegister.I = true;
+                self.StatusRegister._ = true;
             },
 
             Op.BVC => {
@@ -441,11 +473,34 @@ pub const CPU = struct {
             },
 
             Op.JMP => {
-                unreachable;
+                if (instr[1] == AddrMode.Absolute) {
+                    self.PC = self.getAddr16();
+                } else {
+                    assert(instr[1] == AddrMode.Indirect);
+                    var addr_addr = self.getAddr16();
+                    var lo: u16 = undefined;
+                    var hi: u16 = undefined;
+                    // If the indirect vector falls on a page boundary
+                    // (e.g. $xxFF where xx is any value from $00 to $FF),
+                    // then the low byte is fetched from $xxFF as expected,
+                    // but the high byte is fetched from $xx00.
+                    if (addr_addr & 0xFF == 0xFF) {
+                        // Emulate 6502 bug.
+                        lo = self.memRead(addr_addr);
+                        hi = self.memRead(addr_addr & 0xFF00);
+                    } else {
+                        lo = self.memRead(addr_addr);
+                        hi = self.memRead(addr_addr + 1);
+                    }
+                    self.PC = (hi << 8) | lo;
+                }
             },
 
             Op.JSR => {
-                unreachable;
+                var return_addr = @addWithOverflow(self.PC, @as(u16, 1))[0];
+                self.push(@truncate(return_addr >> 8)); // high byte
+                self.push(@truncate(return_addr)); // low byte
+                self.PC = self.getAddr16();
             },
 
             Op.LDA => {
@@ -807,7 +862,7 @@ pub fn runTestCase(test_case: *const InstrTest) !void {
         var expected_byte = cell[1];
         var received_byte = cpu.memRead(addr);
         if (expected_byte != received_byte) {
-            std.debug.print("Expected: {x} Received: {x} at address {x}\n", .{ expected_byte, received_byte, addr });
+            std.debug.print("Expected: {d}, Received: {d} at address {d}\n", .{ expected_byte, received_byte, addr });
             return error.TestExpectedEqual;
         }
     }
@@ -850,6 +905,39 @@ test "lda (71),Y" {
         },
     };
     try runTestCase(&test_case);
+}
+
+test "ADC" {
+    try runTestsForInstruction("69");
+    try runTestsForInstruction("65");
+    try runTestsForInstruction("75");
+    try runTestsForInstruction("6d");
+    try runTestsForInstruction("7d");
+    try runTestsForInstruction("79");
+    try runTestsForInstruction("61");
+    try runTestsForInstruction("71");
+}
+
+test "SBC" {
+    try runTestsForInstruction("e9");
+    try runTestsForInstruction("e5");
+    try runTestsForInstruction("f5");
+    try runTestsForInstruction("ed");
+    try runTestsForInstruction("fd");
+    try runTestsForInstruction("f9");
+    try runTestsForInstruction("e1");
+    try runTestsForInstruction("f1");
+}
+
+test "JMP, JSR" {
+    try runTestsForInstruction("4c");
+    try runTestsForInstruction("6c");
+
+    try runTestsForInstruction("20");
+}
+
+test "BRK" {
+    try runTestsForInstruction("00");
 }
 
 test "AND" {
@@ -962,17 +1050,6 @@ test "RTI, RTS" {
     try runTestsForInstruction("40");
     try runTestsForInstruction("60");
 }
-
-//test "SBC" {
-//try runTestsForInstruction("e9");
-//try runTestsForInstruction("e5");
-//try runTestsForInstruction("f5");
-//try runTestsForInstruction("ed");
-//try runTestsForInstruction("fd");
-//try runTestsForInstruction("f9");
-//try runTestsForInstruction("e1");
-//try runTestsForInstruction("f1");
-//}
 
 test "SEC, SED, SEI" {
     try runTestsForInstruction("38");
