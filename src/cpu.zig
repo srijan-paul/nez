@@ -233,6 +233,12 @@ pub const CPU = struct {
         self.StatusRegister.N = value & 0b1000_0000 != 0;
     }
 
+    // set the Z and N flags based on the lower 8 bits of `value`.
+    fn setFlagZN(self: *Self, value: u16) void {
+        self.setFlagZ(value);
+        self.setFlagN(value);
+    }
+
     /// set the `C` flag if `value` is greater than 0xFF (u8 max).
     fn setFlagC(self: *Self, value: u16) void {
         self.StatusRegister.C = value > std.math.maxInt(Byte);
@@ -256,6 +262,22 @@ pub const CPU = struct {
         self.S = @addWithOverflow(self.S, 1)[0];
         var addr = self.stackAddr();
         return self.memRead(addr);
+    }
+
+    /// Perform a branch if `cond` is true.
+    fn branchIf(self: *Self, cond: bool) void {
+        // TODO: check for extra cycles when crossing pages.
+        // and when branch is successful.
+        if (cond) {
+            // jump offset can be signed.
+            // TODO: can this be refactored?
+            var offset: i8 = @bitCast(self.nextOp());
+            var old_pc: i32 = self.PC;
+            var new_pc: u32 = @bitCast(old_pc + offset);
+            self.PC = @truncate(new_pc);
+        } else {
+            self.incPC();
+        }
     }
 
     /// Execute a single instruction.
@@ -285,12 +307,145 @@ pub const CPU = struct {
             },
 
             Op.ASL => {
-                var byte: u16 = self.operand(instr);
-                var result: u16 = byte << 1;
-                self.setFlagZ(result);
-                self.setFlagN(result);
-                self.setFlagC(result);
-                self.A = @truncate(result);
+                var dst: *u8 = self.operandPtr(instr);
+                var byte: u16 = dst.*;
+                var res = byte << 1;
+                self.setFlagZN(res);
+                self.setFlagC(res);
+                dst.* = @truncate(res);
+            },
+
+            Op.BCC => {
+                self.branchIf(!self.StatusRegister.C);
+            },
+
+            Op.BCS => {
+                self.branchIf(self.StatusRegister.C);
+            },
+
+            Op.BEQ => {
+                self.branchIf(self.StatusRegister.Z);
+            },
+
+            Op.BIT => {
+                var byte = self.operand(instr);
+                var result = self.A & byte;
+                self.StatusRegister.Z = result == 0;
+                self.StatusRegister.N = (byte & 0b1000_0000) != 0;
+                self.StatusRegister.V = (byte & 0b0100_0000) != 0;
+            },
+
+            Op.BMI => {
+                self.branchIf(self.StatusRegister.N);
+            },
+
+            Op.BNE => {
+                self.branchIf(!self.StatusRegister.Z);
+            },
+
+            Op.BPL => {
+                self.branchIf(!self.StatusRegister.N);
+            },
+
+            Op.BRK => {
+                // TODO:
+            },
+
+            Op.BVC => {
+                self.branchIf(!self.StatusRegister.V);
+            },
+
+            Op.BVS => {
+                self.branchIf(self.StatusRegister.V);
+            },
+
+            Op.CLC => {
+                self.StatusRegister.C = false;
+            },
+
+            Op.CLD => {
+                self.StatusRegister.D = false;
+            },
+
+            Op.CLI => {
+                self.StatusRegister.I = false;
+            },
+
+            Op.CLV => {
+                self.StatusRegister.V = false;
+            },
+
+            Op.CMP => {
+                var byte: u8 = self.operand(instr);
+                var result = @subWithOverflow(self.A, byte)[0];
+                self.setFlagZN(result);
+                self.StatusRegister.C = self.A >= byte;
+            },
+
+            Op.CPX => {
+                var byte: u8 = self.operand(instr);
+                var result = @subWithOverflow(self.X, byte)[0];
+                self.setFlagZN(result);
+                self.StatusRegister.C = self.X >= byte;
+            },
+
+            Op.CPY => {
+                var byte: u8 = self.operand(instr);
+                var result = @subWithOverflow(self.Y, byte)[0];
+                self.setFlagZN(result);
+                self.StatusRegister.C = self.Y >= byte;
+            },
+
+            Op.DEC => {
+                var dst = self.operandPtr(instr);
+                var res = @subWithOverflow(dst.*, 1)[0];
+                self.setFlagZN(res);
+                dst.* = res;
+            },
+
+            Op.DEX => {
+                var res = @subWithOverflow(self.X, 1)[0];
+                self.setFlagZN(res);
+                self.X = res;
+            },
+
+            Op.DEY => {
+                var res = @subWithOverflow(self.Y, 1)[0];
+                self.setFlagZN(res);
+                self.Y = res;
+            },
+
+            Op.EOR => {
+                var byte = self.operand(instr);
+                self.A = self.A ^ byte;
+                self.setFlagZN(self.A);
+            },
+
+            Op.INC => {
+                var dst = self.operandPtr(instr);
+                var res = @addWithOverflow(dst.*, 1)[0];
+                self.setFlagZN(res);
+                dst.* = res;
+            },
+
+            Op.INX => {
+                var res = @addWithOverflow(self.X, 1)[0];
+                self.setFlagZN(res);
+                self.X = res;
+            },
+
+            Op.INY => {
+                var res = @addWithOverflow(self.Y, 1)[0];
+                self.setFlagZN(res);
+                self.Y = res;
+            },
+
+            Op.JMP => {
+                unreachable;
+            },
+
+            Op.JSR => {
+                unreachable;
             },
 
             Op.LDA => {
@@ -695,6 +850,112 @@ test "lda (71),Y" {
         },
     };
     try runTestCase(&test_case);
+}
+
+test "AND" {
+    try runTestsForInstruction("29");
+    try runTestsForInstruction("25");
+    try runTestsForInstruction("35");
+    try runTestsForInstruction("2d");
+    try runTestsForInstruction("3d");
+    try runTestsForInstruction("39");
+    try runTestsForInstruction("21");
+    try runTestsForInstruction("31");
+}
+
+test "ASL" {
+    try runTestsForInstruction("0a");
+    try runTestsForInstruction("06");
+    try runTestsForInstruction("16");
+    try runTestsForInstruction("0e");
+    try runTestsForInstruction("1e");
+}
+
+test "BCC, BCS, BEQ" {
+    try runTestsForInstruction("90");
+    try runTestsForInstruction("b0");
+    try runTestsForInstruction("f0");
+}
+
+test "BIT" {
+    try runTestsForInstruction("24");
+    try runTestsForInstruction("2c");
+}
+
+test "BMI, BNE, BPL" {
+    try runTestsForInstruction("30");
+    try runTestsForInstruction("d0");
+    try runTestsForInstruction("10");
+}
+
+test "BVC, BVS" {
+    try runTestsForInstruction("50");
+    try runTestsForInstruction("70");
+}
+
+test "CLC, CLD, CLI, CLV" {
+    try runTestsForInstruction("18");
+    try runTestsForInstruction("d8");
+    try runTestsForInstruction("58");
+    try runTestsForInstruction("b8");
+}
+
+test "CMP" {
+    try runTestsForInstruction("c9");
+    try runTestsForInstruction("c5");
+    try runTestsForInstruction("d5");
+    try runTestsForInstruction("cd");
+    try runTestsForInstruction("dd");
+    try runTestsForInstruction("d9");
+    try runTestsForInstruction("c1");
+    try runTestsForInstruction("d1");
+}
+
+test "CPX" {
+    try runTestsForInstruction("e0");
+    try runTestsForInstruction("e4");
+    try runTestsForInstruction("ec");
+}
+
+test "CPY" {
+    try runTestsForInstruction("c0");
+    try runTestsForInstruction("c4");
+    try runTestsForInstruction("cc");
+}
+
+test "DEC" {
+    try runTestsForInstruction("c6");
+    try runTestsForInstruction("d6");
+    try runTestsForInstruction("ce");
+    try runTestsForInstruction("de");
+}
+
+test "DEX, DEY" {
+    try runTestsForInstruction("ca");
+    try runTestsForInstruction("88");
+}
+
+test "EOR" {
+    try runTestsForInstruction("49");
+    try runTestsForInstruction("45");
+    try runTestsForInstruction("55");
+    try runTestsForInstruction("4d");
+    try runTestsForInstruction("5d");
+    try runTestsForInstruction("59");
+    try runTestsForInstruction("41");
+    try runTestsForInstruction("51");
+}
+
+test "INC" {
+    try runTestsForInstruction("e6");
+    try runTestsForInstruction("f6");
+    try runTestsForInstruction("ee");
+    try runTestsForInstruction("fe");
+}
+
+test "INX, INY" {
+    try runTestsForInstruction("e8");
+    try runTestsForInstruction("c8");
 }
 
 test "RTI, RTS" {
