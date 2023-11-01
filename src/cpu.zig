@@ -228,7 +228,7 @@ pub const CPU = struct {
         self.StatusRegister.Z = value & 0xFF == 0;
     }
 
-    /// set the `N` flag if the 8th bit of `value` is 1.
+    /// set the `N` flag if the MSB of `value` is 1.
     fn setFlagN(self: *Self, value: u16) void {
         self.StatusRegister.N = value & 0b1000_0000 != 0;
     }
@@ -236,6 +236,26 @@ pub const CPU = struct {
     /// set the `C` flag if `value` is greater than 0xFF (u8 max).
     fn setFlagC(self: *Self, value: u16) void {
         self.StatusRegister.C = value > std.math.maxInt(Byte);
+    }
+
+    /// Get the address pointed to the by the current stack pointer.
+    fn stackAddr(self: *Self) u16 {
+        return @addWithOverflow(0x100, @as(u16, self.S))[0];
+    }
+
+    /// Push `value` onto the stack, and decrement the stack pointer.
+    fn push(self: *Self, value: u8) void {
+        var addr = self.stackAddr();
+        self.memWrite(addr, value);
+        // decrement the stack pointer.
+        self.S = @subWithOverflow(self.S, 1)[0];
+    }
+
+    /// Pops a value from the stack.
+    fn pop(self: *Self) u8 {
+        self.S = @addWithOverflow(self.S, 1)[0];
+        var addr = self.stackAddr();
+        return self.memRead(addr);
     }
 
     /// Execute a single instruction.
@@ -314,10 +334,64 @@ pub const CPU = struct {
             },
 
             Op.PHA => {
+                // the stack starts at 0x100, and grows downwards.
                 var addr = @addWithOverflow(0x100, @as(u16, self.S))[0];
                 self.memWrite(addr, self.A);
                 // decrement the stack pointer.
                 self.S = @subWithOverflow(self.S, 1)[0];
+            },
+
+            Op.PHP => {
+                var status_reg = self.StatusRegister;
+                status_reg.B = true; // pushed by non-interrupt instr
+                status_reg._ = true; // always pushed as 1 no matter what.
+                self.push(@bitCast(status_reg));
+            },
+
+            Op.PLA => {
+                self.A = self.pop();
+                self.setFlagZ(self.A);
+                self.setFlagN(self.A);
+            },
+
+            Op.PLP => {
+                self.StatusRegister = @bitCast(self.pop());
+                self.StatusRegister._ = true;
+                self.StatusRegister.B = false;
+            },
+
+            Op.ROL => {
+                var dst = self.operandPtr(instr);
+                var old_carry: u8 = if (self.StatusRegister.C) 1 else 0;
+
+                var shlResult = @shlWithOverflow(dst.*, @as(u8, 1));
+
+                // set the new bit-0 to the old carry.
+                var res = shlResult[0] | old_carry;
+                self.setFlagZ(res);
+                self.setFlagN(res);
+
+                // the bit that was shifted out when performing a <<
+                var shifted_bit = shlResult[1];
+                self.StatusRegister.C = shifted_bit == 1;
+                dst.* = res;
+            },
+
+            Op.ROR => {
+                var dst = self.operandPtr(instr);
+                var old_carry: u8 = if (self.StatusRegister.C) 1 else 0;
+
+                var old_b0 = dst.* & 0b0000_0001; // old 0th bit
+                var res = dst.* >> 1;
+                // set the new MSB to the old carry.
+                res = res | (old_carry << 7);
+
+                self.setFlagZ(res);
+                self.setFlagN(res);
+
+                // the bit that was shifted out when performing a >>
+                self.StatusRegister.C = old_b0 == 1;
+                dst.* = res;
             },
 
             else => {
@@ -500,7 +574,10 @@ pub fn runTestCase(test_case: *const InstrTest) !void {
         var addr = cell[0];
         var expected_byte = cell[1];
         var received_byte = cpu.memRead(addr);
-        try T.expectEqual(expected_byte, received_byte);
+        if (expected_byte != received_byte) {
+            std.debug.print("Expected: {x} Received: {x} at address {x}\n", .{ expected_byte, received_byte, addr });
+            return error.TestExpectedEqual;
+        }
     }
 }
 
@@ -541,6 +618,22 @@ test "lda (71),Y" {
         },
     };
     try runTestCase(&test_case);
+}
+
+test "ROL, ROR" {
+    // ROL
+    try runTestsForInstruction("2a");
+    try runTestsForInstruction("26");
+    try runTestsForInstruction("36");
+    try runTestsForInstruction("2e");
+    try runTestsForInstruction("3e");
+
+    // ROR
+    try runTestsForInstruction("6a");
+    try runTestsForInstruction("66");
+    try runTestsForInstruction("76");
+    try runTestsForInstruction("6e");
+    try runTestsForInstruction("7e");
 }
 
 test "LDA" {
@@ -592,6 +685,9 @@ test "ORA" {
     try runTestsForInstruction("11");
 }
 
-test "PHA" {
+test "Stack instructions" {
     try runTestsForInstruction("48");
+    try runTestsForInstruction("08");
+    try runTestsForInstruction("68");
+    try runTestsForInstruction("28");
 }
