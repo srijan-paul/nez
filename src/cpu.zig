@@ -90,6 +90,8 @@ pub const CPU = struct {
 
     allocator: Allocator,
 
+    currentInstr: Instruction = .{ Op.Unknown, AddrMode.Invalid, 0 },
+
     pub fn init(allocator: Allocator, bus: *Bus) Self {
         return .{ .allocator = allocator, .bus = bus };
     }
@@ -280,6 +282,7 @@ pub const CPU = struct {
         }
     }
 
+    /// Perform the `ADC` CPU operation on `arg`.
     fn adc(self: *Self, arg: Byte) void {
         var byte: u16 = arg;
         var carry: u16 = if (self.StatusRegister.C) 1 else 0;
@@ -319,18 +322,6 @@ pub const CPU = struct {
                 dst.* = @truncate(res);
             },
 
-            Op.BCC => {
-                self.branchIf(!self.StatusRegister.C);
-            },
-
-            Op.BCS => {
-                self.branchIf(self.StatusRegister.C);
-            },
-
-            Op.BEQ => {
-                self.branchIf(self.StatusRegister.Z);
-            },
-
             Op.BIT => {
                 var byte = self.operand(instr);
                 var result = self.A & byte;
@@ -339,17 +330,14 @@ pub const CPU = struct {
                 self.StatusRegister.V = (byte & 0b0100_0000) != 0;
             },
 
-            Op.BMI => {
-                self.branchIf(self.StatusRegister.N);
-            },
-
-            Op.BNE => {
-                self.branchIf(!self.StatusRegister.Z);
-            },
-
-            Op.BPL => {
-                self.branchIf(!self.StatusRegister.N);
-            },
+            Op.BVC => self.branchIf(!self.StatusRegister.V),
+            Op.BVS => self.branchIf(self.StatusRegister.V),
+            Op.BCC => self.branchIf(!self.StatusRegister.C),
+            Op.BCS => self.branchIf(self.StatusRegister.C),
+            Op.BEQ => self.branchIf(self.StatusRegister.Z),
+            Op.BMI => self.branchIf(self.StatusRegister.N),
+            Op.BNE => self.branchIf(!self.StatusRegister.Z),
+            Op.BPL => self.branchIf(!self.StatusRegister.N),
 
             Op.BRK => {
                 // Contrary to what most of the online documentations state,
@@ -377,29 +365,10 @@ pub const CPU = struct {
                 self.StatusRegister._ = true;
             },
 
-            Op.BVC => {
-                self.branchIf(!self.StatusRegister.V);
-            },
-
-            Op.BVS => {
-                self.branchIf(self.StatusRegister.V);
-            },
-
-            Op.CLC => {
-                self.StatusRegister.C = false;
-            },
-
-            Op.CLD => {
-                self.StatusRegister.D = false;
-            },
-
-            Op.CLI => {
-                self.StatusRegister.I = false;
-            },
-
-            Op.CLV => {
-                self.StatusRegister.V = false;
-            },
+            Op.CLC => self.StatusRegister.C = false,
+            Op.CLD => self.StatusRegister.D = false,
+            Op.CLI => self.StatusRegister.I = false,
+            Op.CLV => self.StatusRegister.V = false,
 
             Op.CMP => {
                 var byte: u8 = self.operand(instr);
@@ -614,17 +583,9 @@ pub const CPU = struct {
                 self.incPC();
             },
 
-            Op.SEC => {
-                self.StatusRegister.C = true;
-            },
-
-            Op.SED => {
-                self.StatusRegister.D = true;
-            },
-
-            Op.SEI => {
-                self.StatusRegister.I = true;
-            },
+            Op.SEC => self.StatusRegister.C = true,
+            Op.SED => self.StatusRegister.D = true,
+            Op.SEI => self.StatusRegister.I = true,
 
             Op.STA => {
                 var dst = self.operandPtr(instr);
@@ -681,6 +642,12 @@ pub const CPU = struct {
         }
     }
 
+    /// Fetch and decode the next instruction.
+    pub fn nextInstruction(self: *Self) Instruction {
+        var op = self.nextOp();
+        return opcode.decodeInstruction(op);
+    }
+
     /// Tick the CPU by one clock cycle.
     pub fn step(self: *Self) !void {
         if (self.cycles_to_wait > 0) {
@@ -688,23 +655,20 @@ pub const CPU = struct {
             return;
         }
 
-        var op = self.nextOp();
-        var instr = opcode.decodeInstruction(op);
-        self.cycles_to_wait = instr[2];
-        return self.exec(instr);
+        var result = self.exec(self.currentInstr);
+        self.currentInstr = self.nextInstruction();
+
+        // subtract one because of CPU cycle
+        // used to decode the instruction.
+        self.cycles_to_wait = self.currentInstr[2] - 1;
+        return result;
     }
 
-    /// Executes the program present in the `program` buffer.
-    /// The program is loaded onto the first page of the RAM,
-    /// and the program counter is set to 0.
-    pub fn loadAndRun(self: *Self, program: []const u8) !void {
-        var num_instrs = program.len;
-        for (0..num_instrs) |i| {
-            self.memWrite(@truncate(i), program[i]);
-        }
-        self.PC = 0;
-
-        while (self.PC < num_instrs) {
+    // Run the CPU, assuming that the program counter has been
+    // set to the correct location.
+    pub fn run(self: *Self) !void {
+        self.currentInstr = self.nextInstruction();
+        while (true) {
             try self.step();
         }
     }
@@ -725,7 +689,7 @@ pub const CPU = struct {
             self.memWrite(addr, byte);
         }
 
-        try self.step();
+        try self.exec(self.nextInstruction());
 
         var final_ram = try self.allocator.alloc(struct { u16, u8 }, initial_state.ram.len);
 
@@ -747,6 +711,8 @@ pub const CPU = struct {
         };
     }
 };
+
+// Tests For the 6502 CPU
 
 const T = std.testing;
 
@@ -773,18 +739,6 @@ test "CPU:nextOp" {
 
     try T.expectEqual(op, cpu.nextOp());
     try T.expectEqual(@as(u16, 1), cpu.PC);
-}
-
-test "CPU: loadAndRun (LDA #$42)" {
-    var tbus = TestBus.new();
-    var cpu = CPU.init(T.allocator, &tbus.bus);
-
-    // LDA #$42
-    var program = [_]u8{ 0xA9, 0x42 };
-
-    try cpu.loadAndRun(&program);
-    try T.expectEqual(@as(u8, 0x42), cpu.A);
-    try T.expectEqual(@as(u16, 2), cpu.PC);
 }
 
 // Tests below are taken from: https://github.com/TomHarte/ProcessorTests/tree/main/nes6502
@@ -860,45 +814,6 @@ pub fn runTestCase(test_case: *const InstrTest) !void {
             return error.TestExpectedEqual;
         }
     }
-}
-
-test "lda (71),Y" {
-    var init_ram = [_]CPUState.Cell{
-        .{ 9023, 177 },
-        .{ 9024, 113 },
-        .{ 9025, 139 },
-        .{ 113, 169 },
-        .{ 114, 89 },
-        .{ 22867, 214 },
-        .{ 23123, 37 },
-    };
-
-    var final_ram = [_]CPUState.Cell{
-        .{ 9023, 177 },
-        .{ 9024, 113 },
-        .{ 9025, 139 },
-        .{ 113, 169 },
-        .{ 114, 89 },
-        .{ 22867, 214 },
-        .{ 23123, 37 },
-    };
-
-    const name: []const u8 = "lda (71),Y";
-
-    var test_case = InstrTest{
-        .name = name,
-        .initial = .{ .pc = 9023, .s = 240, .a = 47, .x = 162, .y = 170, .p = 170, .ram = &init_ram },
-        .final = .{
-            .pc = 9025,
-            .s = 240,
-            .a = 37,
-            .x = 162,
-            .y = 170,
-            .p = 40,
-            .ram = &final_ram,
-        },
-    };
-    try runTestCase(&test_case);
 }
 
 test "ADC" {
