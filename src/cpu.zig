@@ -234,13 +234,13 @@ pub const CPU = struct {
     }
 
     // set the Z and N flags based on the lower 8 bits of `value`.
-    fn setFlagZN(self: *Self, value: u16) void {
+    fn setZN(self: *Self, value: u16) void {
         self.setFlagZ(value);
         self.setFlagN(value);
     }
 
     /// set the `C` flag if `value` is greater than 0xFF (u8 max).
-    fn setFlagC(self: *Self, value: u16) void {
+    fn setC(self: *Self, value: u16) void {
         self.StatusRegister.C = value > std.math.maxInt(Byte);
     }
 
@@ -280,33 +280,27 @@ pub const CPU = struct {
         }
     }
 
+    fn adc(self: *Self, arg: Byte) void {
+        var byte: u16 = arg;
+        var carry: u16 = if (self.StatusRegister.C) 1 else 0;
+        var sum: u16 = self.A + byte + carry;
+
+        self.setZN(sum);
+        self.setC(sum);
+        self.StatusRegister.V = ((self.A ^ sum) & (byte ^ sum) & 0b1000_0000) != 0;
+
+        self.A = @truncate(sum);
+    }
+
     /// Execute a single instruction.
     pub fn exec(self: *Self, instr: Instruction) !void {
         var op = instr[0];
         switch (op) {
-            Op.ADC => {
-                var byte: u16 = self.operand(instr);
-                var carry: u16 = if (self.StatusRegister.C) 1 else 0;
-                var sum: u16 = self.A + byte + carry;
+            Op.ADC => self.adc(self.operand(instr)),
 
-                self.setFlagZN(sum);
-                self.setFlagC(sum);
-                self.StatusRegister.V = ((self.A ^ sum) & (byte ^ sum) & 0b1000_0000) != 0;
-
-                self.A = @truncate(sum);
-            },
-
-            Op.SBC => {
-                var byte: u16 = self.operand(instr);
-                var carry: u16 = if (self.StatusRegister.C) 1 else 0;
-                var sum: u16 = self.A - byte - (1 - carry);
-
-                self.setFlagZN(sum);
-                self.setFlagC(sum);
-                self.StatusRegister.V = ((self.A ^ sum) & (byte ^ sum) & 0b1000_0000) != 0;
-
-                self.A = @truncate(sum);
-            },
+            // SBC is equivalent to ADC(~arg).
+            // Ref: http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
+            Op.SBC => self.adc(~self.operand(instr)),
 
             Op.AND => {
                 var byte = self.operand(instr);
@@ -320,8 +314,8 @@ pub const CPU = struct {
                 var dst: *u8 = self.operandPtr(instr);
                 var byte: u16 = dst.*;
                 var res = byte << 1;
-                self.setFlagZN(res);
-                self.setFlagC(res);
+                self.setZN(res);
+                self.setC(res);
                 dst.* = @truncate(res);
             },
 
@@ -410,65 +404,65 @@ pub const CPU = struct {
             Op.CMP => {
                 var byte: u8 = self.operand(instr);
                 var result = @subWithOverflow(self.A, byte)[0];
-                self.setFlagZN(result);
+                self.setZN(result);
                 self.StatusRegister.C = self.A >= byte;
             },
 
             Op.CPX => {
                 var byte: u8 = self.operand(instr);
                 var result = @subWithOverflow(self.X, byte)[0];
-                self.setFlagZN(result);
+                self.setZN(result);
                 self.StatusRegister.C = self.X >= byte;
             },
 
             Op.CPY => {
                 var byte: u8 = self.operand(instr);
                 var result = @subWithOverflow(self.Y, byte)[0];
-                self.setFlagZN(result);
+                self.setZN(result);
                 self.StatusRegister.C = self.Y >= byte;
             },
 
             Op.DEC => {
                 var dst = self.operandPtr(instr);
                 var res = @subWithOverflow(dst.*, 1)[0];
-                self.setFlagZN(res);
+                self.setZN(res);
                 dst.* = res;
             },
 
             Op.DEX => {
                 var res = @subWithOverflow(self.X, 1)[0];
-                self.setFlagZN(res);
+                self.setZN(res);
                 self.X = res;
             },
 
             Op.DEY => {
                 var res = @subWithOverflow(self.Y, 1)[0];
-                self.setFlagZN(res);
+                self.setZN(res);
                 self.Y = res;
             },
 
             Op.EOR => {
                 var byte = self.operand(instr);
                 self.A = self.A ^ byte;
-                self.setFlagZN(self.A);
+                self.setZN(self.A);
             },
 
             Op.INC => {
                 var dst = self.operandPtr(instr);
                 var res = @addWithOverflow(dst.*, 1)[0];
-                self.setFlagZN(res);
+                self.setZN(res);
                 dst.* = res;
             },
 
             Op.INX => {
                 var res = @addWithOverflow(self.X, 1)[0];
-                self.setFlagZN(res);
+                self.setZN(res);
                 self.X = res;
             },
 
             Op.INY => {
                 var res = @addWithOverflow(self.Y, 1)[0];
-                self.setFlagZN(res);
+                self.setZN(res);
                 self.Y = res;
             },
 
