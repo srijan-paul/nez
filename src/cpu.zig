@@ -90,7 +90,7 @@ pub const CPU = struct {
 
     allocator: Allocator,
 
-    currentInstr: Instruction = .{ Op.Unknown, AddrMode.Invalid, 0 },
+    currentInstr: *const Instruction = &opcode.BadInstruction,
 
     pub fn init(allocator: Allocator, bus: *Bus) Self {
         return .{ .allocator = allocator, .bus = bus };
@@ -129,7 +129,8 @@ pub const CPU = struct {
         return low | (high << 8);
     }
 
-    fn operandPtr(self: *Self, instr: Instruction) *u8 {
+    /// Get a pointer to the operand of the instruction `instr`.
+    fn operandPtr(self: *Self, instr: *const Instruction) *u8 {
         var addr_mode = instr[1];
         switch (addr_mode) {
             .Immediate => {
@@ -221,7 +222,7 @@ pub const CPU = struct {
     // TODO: rename to `readByte`?
     /// Depending on the addressing mode of the instruction `instr`,
     /// get a byte of the data from memory.
-    fn operand(self: *Self, instr: Instruction) Byte {
+    fn operand(self: *Self, instr: *const Instruction) Byte {
         return self.operandPtr(instr).*;
     }
 
@@ -271,8 +272,7 @@ pub const CPU = struct {
         // TODO: check for extra cycles when crossing pages.
         // and when branch is successful.
         if (cond) {
-            // jump offset can be signed.
-            // TODO: can this be refactored?
+            // jump offset is signed.
             var offset: i8 = @bitCast(self.nextOp());
             var old_pc: i32 = self.PC;
             var new_pc: u32 = @bitCast(old_pc + offset);
@@ -296,7 +296,7 @@ pub const CPU = struct {
     }
 
     /// Execute a single instruction.
-    pub fn exec(self: *Self, instr: Instruction) !void {
+    pub fn exec(self: *Self, instr: *const Instruction) !void {
         var op = instr[0];
         switch (op) {
             Op.ADC => self.adc(self.operand(instr)),
@@ -309,8 +309,7 @@ pub const CPU = struct {
                 var byte = self.operand(instr);
                 var result = self.A & byte;
                 self.A = result;
-                self.setFlagZ(result);
-                self.setFlagN(result);
+                self.setZN(result);
             },
 
             Op.ASL => {
@@ -469,22 +468,19 @@ pub const CPU = struct {
             Op.LDA => {
                 var byte = self.operand(instr);
                 self.A = byte;
-                self.setFlagZ(byte);
-                self.setFlagN(byte);
+                self.setZN(byte);
             },
 
             Op.LDX => {
                 var byte = self.operand(instr);
                 self.X = byte;
-                self.setFlagZ(byte);
-                self.setFlagN(byte);
+                self.setZN(byte);
             },
 
             Op.LDY => {
                 var byte = self.operand(instr);
                 self.Y = byte;
-                self.setFlagZ(byte);
-                self.setFlagN(byte);
+                self.setZN(byte);
             },
 
             Op.LSR => {
@@ -492,8 +488,7 @@ pub const CPU = struct {
                 self.StatusRegister.C = (dst.* & 0b0000_0001) == 1;
                 var res = dst.* >> 1;
                 dst.* = res;
-                self.setFlagZ(res);
-                self.setFlagN(res);
+                self.setZN(res);
             },
 
             Op.NOP => {},
@@ -502,8 +497,7 @@ pub const CPU = struct {
                 var byte = self.operand(instr);
                 var result = self.A | byte;
                 self.A = result;
-                self.setFlagZ(result);
-                self.setFlagN(result);
+                self.setZN(result);
             },
 
             Op.PHA => {
@@ -523,8 +517,7 @@ pub const CPU = struct {
 
             Op.PLA => {
                 self.A = self.pop();
-                self.setFlagZ(self.A);
-                self.setFlagN(self.A);
+                self.setZN(self.A);
             },
 
             Op.PLP => {
@@ -541,8 +534,7 @@ pub const CPU = struct {
 
                 // set the new bit-0 to the old carry.
                 var res = shlResult[0] | old_carry;
-                self.setFlagZ(res);
-                self.setFlagN(res);
+                self.setZN(res);
 
                 // the bit that was shifted out when performing a <<
                 var shifted_bit = shlResult[1];
@@ -559,8 +551,7 @@ pub const CPU = struct {
                 // set the new MSB to the old carry.
                 res = res | (old_carry << 7);
 
-                self.setFlagZ(res);
-                self.setFlagN(res);
+                self.setZN(res);
 
                 // the bit that was shifted out when performing a >>
                 self.StatusRegister.C = old_b0 == 1;
@@ -604,26 +595,22 @@ pub const CPU = struct {
 
             Op.TAX => {
                 self.X = self.A;
-                self.setFlagZ(self.X);
-                self.setFlagN(self.X);
+                self.setZN(self.X);
             },
 
             Op.TAY => {
                 self.Y = self.A;
-                self.setFlagZ(self.Y);
-                self.setFlagN(self.Y);
+                self.setZN(self.Y);
             },
 
             Op.TSX => {
                 self.X = self.S;
-                self.setFlagZ(self.X);
-                self.setFlagN(self.X);
+                self.setZN(self.X);
             },
 
             Op.TXA => {
                 self.A = self.X;
-                self.setFlagZ(self.A);
-                self.setFlagN(self.A);
+                self.setZN(self.A);
             },
 
             Op.TXS => {
@@ -632,8 +619,7 @@ pub const CPU = struct {
 
             Op.TYA => {
                 self.A = self.Y;
-                self.setFlagZ(self.A);
-                self.setFlagN(self.A);
+                self.setZN(self.A);
             },
 
             else => {
@@ -643,7 +629,7 @@ pub const CPU = struct {
     }
 
     /// Fetch and decode the next instruction.
-    pub fn nextInstruction(self: *Self) Instruction {
+    pub fn nextInstruction(self: *Self) *const Instruction {
         var op = self.nextOp();
         return opcode.decodeInstruction(op);
     }

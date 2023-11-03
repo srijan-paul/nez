@@ -319,12 +319,12 @@ fn makeLookupTable() [256]Instruction {
     }
 }
 
-const BadInstruction = .{ Op.Unknown, AddrMode.Invalid, 0 };
+pub const BadInstruction: Instruction = .{ Op.Unknown, AddrMode.Invalid, 0 };
 const lookup_table = makeLookupTable();
 
 // Decodes an instruction from its opcode.
-pub fn decodeInstruction(opcode: u8) Instruction {
-    return lookup_table[opcode];
+pub fn decodeInstruction(opcode: u8) *const Instruction {
+    return &lookup_table[opcode];
 }
 
 comptime {
