@@ -1,5 +1,8 @@
 const std = @import("std");
 const util = @import("util.zig");
+const MapperKind = @import("mappers/mapper.zig").MapperKind;
+
+const NROM = @import("mappers/nrom.zig").NROM;
 
 const NESError = util.NESError;
 
@@ -69,13 +72,13 @@ pub const Header = packed struct {
     };
 
     NES: Magic = .{}, // "NES" followed by MS-DOS end-of-file (0x1A)
-    prg_rom_size: u8 = 0,
+    prg_rom_banks: u8 = 0,
     chr_rom_size: u8 = 0,
 
     flags_6: Flags6 = .{},
     flags_7: Flags7 = .{},
 
-    // Currently, I do not support cartridges with PRG RAM.
+    // A value of 0 assumes 8KB of PRG RAM for compatibility.
     _unused_prg_ram_size: u8 = 0,
 
     // Used to tell apart PAL TV system cartridges from NTSC ones.
@@ -86,7 +89,7 @@ pub const Header = packed struct {
     _unused_prg_ram: u8 = 0,
 
     // Padding.
-    // These bits are actually used by the NES 2.0 header format:
+    // These bits are used by the NES 2.0 header format:
     // https://www.nesdev.org/wiki/NES_2.0
     // But NES 2.0 is backwards compatible with iNES, so we should
     // be good here.
@@ -100,13 +103,29 @@ pub const Header = packed struct {
     pub fn isValid(self: *Self) bool {
         return self.NES.N == 'N' and self.NES.E == 'E' and self.NES.S == 'S' and self.NES.EOF == 0x1A;
     }
+
+    /// Get the kind of mapper used for the ROM to which
+    /// this header belongs.
+    fn getMapper(self: *Self) MapperKind {
+        var lo: u8 = self.flags_6.mapper_lower;
+        var hi: u8 = self.flags_7.mapper_upper;
+        var mapper_code = (hi << 4) | lo;
+        return switch (mapper_code) {
+            0 => MapperKind.nrom,
+            else => unreachable,
+        };
+    }
 };
 
 // Represents a NES Cartridge.
 pub const Cart = struct {
+    pub const prg_ram_size = 1024 * 8; // 8KiB of PRG RAM.
     header: Header,
+    prg_ram: [prg_ram_size]u8 = [_]u8{0} ** prg_ram_size,
     prg_rom: []const u8,
+    chr_rom: []const u8,
     allocator: Allocator,
+
     const Self = @This();
 
     pub fn loadFromFile(allocator: Allocator, path: [*:0]const u8) !Self {
@@ -124,6 +143,9 @@ pub const Cart = struct {
             return NESError.InvalidROM;
         }
 
+        // Value of 0 = 8KiB PRG RAM.
+        assert(header._unused_prg_ram_size == 0);
+
         if (header.flags_6.trainer) {
             // skip the trainer, if present.
             // TODO: actually load the trainer.
@@ -133,42 +155,65 @@ pub const Cart = struct {
         }
 
         // populate the PRG ROM.
-        var prg_rom_banks: u16 = header.prg_rom_size;
-        var prg_rom_size = prg_rom_banks * 16 * 1024;
-        var prg_rom_buf = try allocator.alloc(u8, prg_rom_size);
+        const prg_rom_banksize = 16 * 1024; // size of each ROM bank
+        // We allocate enough space for 2 banks.
+        // Even if there is only one 16KB wide bank,
+        // a program can still address beyond the first 16KB.
+        // ROMs that only have one bank will mirror the first one
+        // into the second 16kb slot.
+        // This is done to ensure the correct placement of the vector table.
+        var prg_rom_buf = try allocator.alloc(u8, 2 * prg_rom_banksize);
 
-        bytes_read = try file.read(prg_rom_buf);
-        assert(bytes_read == prg_rom_size);
+        if (header.prg_rom_banks == 1) {
+            // If there is only one bank, read it, and mirror it into
+            // the address space of the second bank.
+            var first_bank = prg_rom_buf[0..prg_rom_banksize];
+            bytes_read = try file.read(first_bank);
+            assert(bytes_read == prg_rom_banksize);
+            @memcpy(prg_rom_buf[prg_rom_banksize .. prg_rom_banksize * 2], first_bank);
+        } else {
+            // If there are two banks, read both of them into the PRG rom
+            // address space.
+            bytes_read = try file.read(prg_rom_buf);
+        }
+
+        var chr_rom_size = @as(usize, header.chr_rom_size) * 8 * 1024;
+        var chr_rom_buf = try allocator.alloc(u8, chr_rom_size);
+
+        bytes_read = try file.read(chr_rom_buf);
+        assert(bytes_read == chr_rom_size);
+
+        // I do not support playchoice inst-rom and prom (yet).
 
         return Self{
             .header = header,
             .prg_rom = prg_rom_buf,
+            .chr_rom = chr_rom_buf,
             .allocator = allocator,
         };
     }
 
-    /// free a cart from memory.
+    /// uninitialize a cartridge.
     pub fn deinit(self: *Self) void {
-        self.allocator.free(self.prg_rom);
-    }
-
-    /// Get the mapper number used in this cartridge.
-    /// ref: https://www.nesdev.org/wiki/List_of_mappers
-    pub fn getMapper(self: *Self) u8 {
-        var lo: u8 = self.header.flags_6.mapper_lower;
-        var hi: u8 = self.header.flags_7.mapper_upper;
-        return (hi << 4) | lo;
+        self.allocator.destroy(self.prg_rom);
+        self.allocator.destroy(self.chr_rom);
     }
 };
+
+fn foo(allocator: Allocator) void {
+    var cart = try allocator.create(Cart);
+    var any: *anyopaque = &cart;
+    allocator.free(any);
+}
 
 test "Cartridge loading: header" {
     var cart = try Cart.loadFromFile(T.allocator, "roms/super-mario-bros.nes");
     defer cart.deinit();
 
     try T.expectEqual(Header.Magic{ .N = 'N', .E = 'E', .S = 'S', .EOF = 0x1A }, cart.header.NES);
-    try T.expectEqual(@as(u8, 2), cart.header.prg_rom_size);
+    try T.expectEqual(@as(u8, 2), cart.header.prg_rom_banks);
     try T.expectEqual(@as(u8, 1), cart.header.chr_rom_size);
     try T.expectEqual(false, cart.header.flags_6.has_prg_ram);
     try T.expectEqual(true, cart.header.flags_6.mirroring_is_vertical);
-    try T.expectEqual(@as(u8, 0), cart.getMapper());
+    try T.expectEqual(MapperKind.nrom, cart.header.getMapper());
 }

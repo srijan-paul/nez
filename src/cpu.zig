@@ -62,8 +62,8 @@ pub const CPU = struct {
 
     // capacity of the RAM chip attached to the CPU in bytes
     // (called SRAM (S = static), or WRAM(W = work))
-    pub const WRamSize = 0x800;
-    RAM: [WRamSize]Byte = .{0} ** WRamSize,
+    pub const w_ram_size = 0x800;
+    RAM: [w_ram_size]Byte = .{0} ** w_ram_size,
     // number of cycles to cycles to wait
     // before executing the next instruction.
     cycles_to_wait: u8 = 0,
@@ -641,22 +641,41 @@ pub const CPU = struct {
             return;
         }
 
-        var result = self.exec(self.currentInstr);
+        try self.exec(self.currentInstr);
         self.currentInstr = self.nextInstruction();
 
         // subtract one because of CPU cycle
         // used to decode the instruction.
         self.cycles_to_wait = self.currentInstr[2] - 1;
-        return result;
     }
 
     // Run the CPU, assuming that the program counter has been
     // set to the correct location.
     pub fn run(self: *Self) !void {
         self.currentInstr = self.nextInstruction();
+        self.cycles_to_wait += self.currentInstr[2];
         while (true) {
             try self.step();
         }
+    }
+
+    fn reset(self: *Self) void {
+        var lo: u16 = self.memRead(0xFFFC);
+        var hi: u16 = self.memRead(0xFFFD);
+        self.PC = (hi << 8) | lo;
+
+        self.StatusRegister._ = true;
+        self.StatusRegister.I = true;
+        self.cycles_to_wait = 6;
+    }
+
+    pub fn power_on(self: *Self) !void {
+        // call the reset interrupt handler.
+        // set all status flags to 0.
+        self.StatusRegister = @bitCast(@as(u8, 0));
+        self.reset();
+
+        self.run();
     }
 
     /// Using `initial_state` as the initial state of the CPU, execute exactly one instruction (at PC),

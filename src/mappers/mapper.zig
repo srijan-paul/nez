@@ -1,5 +1,7 @@
 const Cart = @import("../cart.zig").Cart;
 
+pub const MapperKind = enum { nrom };
+
 /// NES Mapper interface.
 /// Zig interfaces are awkward :S
 pub const Mapper = struct {
@@ -17,14 +19,23 @@ pub const Mapper = struct {
     /// the concrete mapper type.
     writeFn: WriteFn,
 
+    resolveAddrFn: ResolveAddrFn,
+
     /// Initialize a mapper.
     /// `impl`: a mapper implementation.
     /// `read`: a function that reads from the mapper.
     /// `write`: a function that writes to the mapper.
-    pub fn new(readFn: ReadFn, writeFn: WriteFn) Self {
+    /// `resolveAddrFn`: a function that can resolve an address to a byte ptr.
+    /// `deinitFn`: a function that deinitializes the mapper.
+    pub fn init(
+        readFn: ReadFn,
+        writeFn: WriteFn,
+        resolveAddrFn: ResolveAddrFn,
+    ) Self {
         return .{
             .readFn = readFn,
             .writeFn = writeFn,
+            .resolveAddrFn = resolveAddrFn,
         };
     }
 
