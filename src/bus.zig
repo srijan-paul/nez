@@ -89,7 +89,8 @@ pub const NESBus = struct {
         mem.* = val;
     }
 
-    fn createMapper(cart: *Cart, allocator: Allocator, kind: MapperKind) !*Mapper {
+    fn createMapper(allocator: Allocator, cart: *Cart) !*Mapper {
+        var kind = cart.header.getMapper();
         if (kind == .nrom) {
             var nrom = try allocator.create(NROM);
             nrom.init(cart);
@@ -99,17 +100,8 @@ pub const NESBus = struct {
     }
 
     /// Create a new Bus.
-    /// i_mapper is non-owned pointer.
     pub fn new(allocator: Allocator, cart: *Cart) Self {
-        var mapper: *Mapper = undefined;
-        switch (cart.mapperKind) {
-            .nrom => {
-                var nrom = try allocator.create(NROM);
-                nrom.init(cart);
-                mapper = &nrom.mapper;
-            },
-            else => unreachable,
-        }
+        var mapper = try createMapper(allocator, cart);
 
         return .{
             .allocator = allocator,
@@ -123,7 +115,13 @@ pub const NESBus = struct {
         };
     }
 
-    pub fn deinit(_: *Self) void {
-        // TODO;
+    pub fn deinit(self: *Self) void {
+        switch (self.cart.header.getMapper()) {
+            .nrom => {
+                var nrom = @fieldParentPtr(NROM, "mapper", self.mapper);
+                self.allocator.deinit(nrom);
+            },
+            else => unreachable,
+        }
     }
 };

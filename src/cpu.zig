@@ -635,7 +635,7 @@ pub const CPU = struct {
     }
 
     /// Tick the CPU by one clock cycle.
-    pub fn step(self: *Self) !void {
+    pub fn tick(self: *Self) !void {
         if (self.cycles_to_wait > 0) {
             self.cycles_to_wait -= 1;
             return;
@@ -650,16 +650,14 @@ pub const CPU = struct {
     }
 
     // Run the CPU, assuming that the program counter has been
-    // set to the correct location.
-    pub fn run(self: *Self) !void {
-        self.currentInstr = self.nextInstruction();
-        self.cycles_to_wait += self.currentInstr[2];
+    // set to the correct location, and an instruction has been fetched.
+    fn run(self: *Self) !void {
         while (true) {
-            try self.step();
+            try self.tick();
         }
     }
 
-    fn reset(self: *Self) void {
+    pub fn reset(self: *Self) void {
         var lo: u16 = self.memRead(0xFFFC);
         var hi: u16 = self.memRead(0xFFFD);
         self.PC = (hi << 8) | lo;
@@ -669,13 +667,15 @@ pub const CPU = struct {
         self.cycles_to_wait = 6;
     }
 
-    pub fn power_on(self: *Self) !void {
+    pub fn powerOn(self: *Self) void {
         // call the reset interrupt handler.
-        // set all status flags to 0.
+        // set all status flags to 0 (except the _ flag)
         self.StatusRegister = @bitCast(@as(u8, 0));
         self.reset();
 
-        self.run();
+        // Fetch the first instruction from the reset IRQ Handler.
+        self.currentInstr = self.nextInstruction();
+        self.cycles_to_wait += self.currentInstr[2];
     }
 
     /// Using `initial_state` as the initial state of the CPU, execute exactly one instruction (at PC),
