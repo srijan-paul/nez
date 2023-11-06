@@ -106,7 +106,7 @@ pub const Header = packed struct {
 
     /// Get the kind of mapper used for the ROM to which
     /// this header belongs.
-    fn getMapper(self: *Self) MapperKind {
+    pub fn getMapper(self: *Self) MapperKind {
         var lo: u8 = self.flags_6.mapper_lower;
         var hi: u8 = self.flags_7.mapper_upper;
         var mapper_code = (hi << 4) | lo;
@@ -122,8 +122,8 @@ pub const Cart = struct {
     pub const prg_ram_size = 1024 * 8; // 8KiB of PRG RAM.
     header: Header,
     prg_ram: [prg_ram_size]u8 = [_]u8{0} ** prg_ram_size,
-    prg_rom: []const u8,
-    chr_rom: []const u8,
+    prg_rom: []u8,
+    chr_rom: []u8,
     allocator: Allocator,
 
     const Self = @This();
@@ -185,7 +185,7 @@ pub const Cart = struct {
 
         // I do not support playchoice inst-rom and prom (yet).
 
-        return Self{
+        return .{
             .header = header,
             .prg_rom = prg_rom_buf,
             .chr_rom = chr_rom_buf,
@@ -195,8 +195,8 @@ pub const Cart = struct {
 
     /// uninitialize a cartridge.
     pub fn deinit(self: *Self) void {
-        self.allocator.destroy(self.prg_rom);
-        self.allocator.destroy(self.chr_rom);
+        self.allocator.free(self.prg_rom);
+        self.allocator.free(self.chr_rom);
     }
 };
 

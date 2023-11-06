@@ -5,7 +5,7 @@ const std = @import("std");
 
 const MapperKind = mapper_mod.MapperKind;
 const Mapper = mapper_mod.Mapper;
-const Allocator = std.heap.Allocator;
+const Allocator = std.mem.Allocator;
 
 pub const Bus = struct {
     const Self = @This();
@@ -100,9 +100,7 @@ pub const NESBus = struct {
     }
 
     /// Create a new Bus.
-    pub fn new(allocator: Allocator, cart: *Cart) Self {
-        var mapper = try createMapper(allocator, cart);
-
+    pub fn init(allocator: Allocator, cart: *Cart) !Self {
         return .{
             .allocator = allocator,
             .cart = cart,
@@ -111,7 +109,7 @@ pub const NESBus = struct {
                 .readFn = busRead,
                 .writeFn = busWrite,
             },
-            .mapper = mapper,
+            .mapper = try createMapper(allocator, cart),
         };
     }
 
@@ -119,9 +117,8 @@ pub const NESBus = struct {
         switch (self.cart.header.getMapper()) {
             .nrom => {
                 var nrom = @fieldParentPtr(NROM, "mapper", self.mapper);
-                self.allocator.deinit(nrom);
+                self.allocator.destroy(nrom);
             },
-            else => unreachable,
         }
     }
 };

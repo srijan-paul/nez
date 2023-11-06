@@ -1,5 +1,6 @@
 const rg = @import("raygui");
 const std = @import("std");
+const fmt = std.fmt;
 
 const Allocator = std.mem.Allocator;
 
@@ -7,6 +8,10 @@ pub const Label = struct {
     bounds: rg.Rectangle,
     text: [:0]const u8,
 };
+
+fn u8toHexString(allocator: std.mem.Allocator, num: u32) ![:0]const u8 {
+    return try fmt.allocPrintZ(allocator, "0x{x}", .{num});
+}
 
 pub const Window = struct {
     const Self = @This();
@@ -52,6 +57,42 @@ pub const Window = struct {
                 .height = label.bounds.height,
             }, label.text);
         }
+    }
+
+    pub fn drawLabelUint(
+        self: *Self,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        num: u32,
+    ) !void {
+        if (!self._is_visible) return;
+        var str = try u8toHexString(self.allocator, num);
+        defer self.allocator.free(str);
+        _ = rg.GuiLabel(.{
+            .x = self.bounds.x + x,
+            .y = self.bounds.y + y,
+            .width = width,
+            .height = height,
+        }, str);
+    }
+
+    pub fn drawLabel(
+        self: *Self,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        text: *[:0]const u8,
+    ) void {
+        if (!self._is_visible) return;
+        _ = rg.GuiLabel(.{
+            .x = self.bounds.x + x,
+            .y = self.bounds.y + y,
+            .width = width,
+            .height = height,
+        }, text);
     }
 
     pub fn addLabel(

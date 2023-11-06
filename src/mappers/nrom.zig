@@ -30,13 +30,12 @@ pub const NROM = struct {
             // If there is only 1 bank, it is mirrored into both banks 1 and two.
             // To avoid maintaining two identical memory regions,
             // I route all read/writes to the second bank into the first one.
-            if (addr >= prg_rom_bank_2.start) {
-                addr = addr - prg_rom_bank_2.start;
-            } else {
-                addr = addr - prg_rom_bank_1.start;
-            }
+            var resolved_addr = if (addr >= prg_rom_bank_2.start)
+                addr - prg_rom_bank_2.start
+            else
+                addr - prg_rom_bank_1.start;
 
-            return &self.cart.prg_rom[addr];
+            return &self.cart.prg_rom[resolved_addr];
         }
 
         // No mirroring needed when there are 2 banks.
@@ -72,9 +71,12 @@ pub const NROM = struct {
         };
     }
 
-    /// Initialize an empty NROM mapper that was just allocated.
     pub fn init(self: *Self, cart: *Cart) void {
         self.cart = cart;
-        self.mapper = self.createMapper(cart.header.getMapper());
+        self.mapper = Mapper.init(
+            nromRead,
+            nromWrite,
+            nromResolveAddr,
+        );
     }
 };

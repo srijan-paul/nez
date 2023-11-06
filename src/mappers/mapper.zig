@@ -7,9 +7,9 @@ pub const MapperKind = enum { nrom };
 pub const Mapper = struct {
     const Self = @This();
 
-    pub const ReadFn = fn (*Mapper, u16) u8;
-    pub const WriteFn = fn (*Mapper, u16, u8) void;
-    pub const ResolveAddrFn = fn (*Mapper, u16) ?*u8;
+    pub const ReadFn = *const fn (*Mapper, u16) u8;
+    pub const WriteFn = *const fn (*Mapper, u16, u8) void;
+    pub const ResolveAddrFn = *const fn (*Mapper, u16) *u8;
 
     /// A pointer to the read-function implemented by
     /// the concrete mapper type.
@@ -51,6 +51,6 @@ pub const Mapper = struct {
 
     /// Get an byte pointer to cartridge memory from an address.
     pub fn resolveAddr(self: *Self, addr: u16) *u8 {
-        return self.resolveAddr(self, addr);
+        return self.resolveAddrFn(self, addr);
     }
 };
