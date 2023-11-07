@@ -13,7 +13,7 @@ pub fn main() !void {
 
     rl.SetConfigFlags(rl.ConfigFlags{ .FLAG_WINDOW_RESIZABLE = false });
     rl.InitWindow(800, 800, "rl zig test");
-    rl.SetTargetFPS(60);
+    rl.SetTargetFPS(200);
 
     rg.GuiLoadStyle(style);
 
@@ -32,15 +32,21 @@ pub fn main() !void {
     try registerWin.addLabel("PC", 16, 104, 30, 24);
     try registerWin.addLabel("Status", 16, 152, 56, 24);
 
+    var then: u64 = @intCast(std.time.milliTimestamp());
+
     while (!rl.WindowShouldClose()) {
+        var now: u64 = @intCast(std.time.milliTimestamp());
+        var dt: u64 = now - then;
+        then = now;
+
         rl.BeginDrawing();
         defer rl.EndDrawing();
 
         registerWin.draw();
-        try emu.tick();
+        var cycles_elapsed = try emu.update(dt);
 
-        try registerWin.drawLabelUint(32, 32, 40, 24, emu.cpu.X);
-        try registerWin.drawLabelUint(56, 104, 72, 24, emu.cpu.PC);
+        std.debug.print("Cycles elapsed: {}\n", .{cycles_elapsed});
+        std.debug.print("Time elapsed: {}\n", .{dt});
 
         rl.ClearBackground(rl.BLACK);
     }

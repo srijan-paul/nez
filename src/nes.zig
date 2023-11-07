@@ -9,6 +9,10 @@ const NESBus = bus_mod.NESBus;
 
 const Allocator = std.mem.Allocator;
 
+/// Clockrate of NES CPU in Hz (1.789773 Mhz).
+const cpu_cycles_per_second: f64 = 1.789773 * 1_000_000;
+const cpu_cycles_per_ms: f64 = cpu_cycles_per_second / 1_000;
+
 /// An NES console.
 pub const Console = struct {
     const Self = @This();
@@ -50,7 +54,19 @@ pub const Console = struct {
         self.cpu.powerOn();
     }
 
-    pub fn tick(self: *Self) !void {
-        return self.cpu.tick();
+    // Update the console state.
+    // `dt`: time elapsed since last call to update in ms.
+    // Retrurns the number of CPU cycles executed.
+    pub fn update(self: *Self, dt: u64) !u64 {
+        var cpu_cycles: u64 = @intFromFloat(
+            std.math.floor(@as(f64, @floatFromInt(dt)) * cpu_cycles_per_ms),
+        );
+        if (cpu_cycles < 1) return 0;
+
+        for (0..@as(usize, cpu_cycles)) |_| {
+            try self.cpu.tick();
+        }
+
+        return cpu_cycles;
     }
 };
