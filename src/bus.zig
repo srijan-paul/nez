@@ -76,13 +76,12 @@ pub const NESBus = struct {
             // TOOD: simulate address latch reset when reading PPUSTATUS.
             var mmio_addr = (addr - MMIO_addr_start) % 8;
             switch (mmio_addr) {
-                0 => return self.ppu.ppu_ctrl,
-                1 => return self.ppu.ppu_mask,
-                2 => return self.ppu.ppu_status,
+                0 => return @bitCast(self.ppu.ppu_ctrl),
+                1 => return @bitCast(self.ppu.ppu_mask),
+                2 => return @bitCast(self.ppu.ppu_status),
                 // TODO: OAMADDR, OAMDATA, PPUSCROLL
-                3...5 => unreachable,
-                6 => self.ppu.ppu_addr,
-                7 => self.ppu.readFromPPUAddr(),
+                3...6 => unreachable,
+                7 => return self.ppu.readFromPPUAddr(),
                 else => unreachable,
             }
         }
@@ -106,7 +105,7 @@ pub const NESBus = struct {
                 // TODO: OAMADDR, OAMDATA, PPUSCROLL
                 3...5 => unreachable,
                 6 => self.ppu.setPPUAddr(val),
-                7 => self.ppu.writePPUData(val),
+                7 => self.ppu.writeToPPUAddr(val),
                 else => unreachable,
             }
         }
