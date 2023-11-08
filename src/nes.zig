@@ -3,7 +3,7 @@ const CPU = @import("cpu.zig").CPU;
 const bus_mod = @import("bus.zig");
 const Cart = @import("cart.zig").Cart;
 const rl = @import("raylib");
-const PPU = @import("./ppu.zig").PPU;
+const PPU = @import("./ppu/ppu.zig").PPU;
 
 const Bus = bus_mod.Bus;
 const NESBus = bus_mod.NESBus;

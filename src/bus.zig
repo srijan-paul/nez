@@ -3,7 +3,7 @@ const mapper_mod = @import("./mappers/mapper.zig");
 const NROM = @import("./mappers/nrom.zig").NROM;
 const std = @import("std");
 
-const PPU = @import("./ppu.zig").PPU;
+const PPU = @import("./ppu/ppu.zig").PPU;
 const MapperKind = mapper_mod.MapperKind;
 const Mapper = mapper_mod.Mapper;
 const Allocator = std.mem.Allocator;

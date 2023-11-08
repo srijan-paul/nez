@@ -1,4 +1,5 @@
 const std = @import("std");
+const palette = @import("./ppu-colors.zig").PPU_Palette;
 
 /// State of the PPUADDR register.
 const PPUAddrState = enum {
@@ -12,10 +13,7 @@ const PPUAddrState = enum {
 pub const PPU = struct {
     ppu_ram: [0x10000]u8 = [_]u8{0} ** 0x10000,
 
-    // write-only
     ppu_ctrl: FlagCTRL = .{},
-
-    // write-only
     ppu_mask: FlagMask = .{},
 
     // NOTE: reading from this register resets the address latch.
@@ -25,6 +23,7 @@ pub const PPU = struct {
     ppu_addr: u16 = 0,
     ppu_addr_state: PPUAddrState = PPUAddrState.addr_set,
 
+    cycle: u16 = 0,
     current_scanline: u16 = 0,
 
     const Self = @This();
@@ -63,7 +62,11 @@ pub const PPU = struct {
     };
 
     pub fn tick(self: *PPU) void {
-        _ = self;
+        self.cycle += 1;
+        if (self.cycle > 340) {
+            self.cycle = 0;
+            // TODO: reset scanline.
+        }
     }
 
     /// Write to the PPUCTRL register.
