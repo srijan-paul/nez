@@ -42,11 +42,6 @@ pub const NROM = struct {
         return &self.cart.prg_rom[addr - prg_rom_bank_1.start];
     }
 
-    fn nromResolveAddr(i_mapper: *Mapper, addr: u16) *u8 {
-        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
-        return self.resolveAddr(addr);
-    }
-
     fn nromRead(i_mapper: *Mapper, addr: u16) u8 {
         var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
         var ptr = self.resolveAddr(addr);
@@ -59,24 +54,11 @@ pub const NROM = struct {
         ptr.* = value;
     }
 
-    /// Crate a new mapper that operates on `cart`.
-    pub fn new(cart: *Cart) Self {
+    /// Create a new mapper that operates on `cart`.
+    pub fn init(cart: *Cart) Self {
         return .{
             .cart = cart,
-            .mapper = Mapper.init(
-                nromRead,
-                nromWrite,
-                nromResolveAddr,
-            ),
+            .mapper = Mapper.init(nromRead, nromWrite),
         };
-    }
-
-    pub fn init(self: *Self, cart: *Cart) void {
-        self.cart = cart;
-        self.mapper = Mapper.init(
-            nromRead,
-            nromWrite,
-            nromResolveAddr,
-        );
     }
 };

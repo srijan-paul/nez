@@ -106,10 +106,6 @@ pub const CPU = struct {
         self.bus.write(addr, byte);
     }
 
-    fn resolveAddr(self: *Self, addr: u16) *u8 {
-        return self.bus.resolveAddr(addr);
-    }
-
     fn incPC(self: *Self) void {
         self.PC = @addWithOverflow(self.PC, @as(u16, 1))[0];
     }
@@ -129,40 +125,37 @@ pub const CPU = struct {
         return low | (high << 8);
     }
 
-    /// Get a pointer to the operand of the instruction `instr`.
-    fn operandPtr(self: *Self, instr: *const Instruction) *u8 {
-        var addr_mode = instr[1];
-        switch (addr_mode) {
+    /// Get the address pointed to by the operand of the instruction `instr`.
+    fn addrOfInstruction(self: *Self, instr: *const Instruction) u16 {
+        var mode = instr[1];
+        switch (mode) {
             .Immediate => {
-                var ptr = self.resolveAddr(self.PC);
+                var addr = self.PC;
                 self.incPC();
-                return ptr;
+                return addr;
             },
 
-            .Accumulator => {
-                return &self.A;
-            },
+            .Accumulator => unreachable,
 
             .Absolute => {
-                var addr = self.getAddr16();
-                return self.resolveAddr(addr);
+                return self.getAddr16();
             },
 
             .AbsoluteX => {
                 var addr = self.getAddr16();
                 addr = @addWithOverflow(addr, self.X)[0];
-                return self.resolveAddr(addr);
+                return addr;
             },
 
             .AbsoluteY => {
                 var addr = self.getAddr16();
                 addr = @addWithOverflow(addr, self.Y)[0];
-                return self.resolveAddr(addr);
+                return addr;
             },
 
             .ZeroPage => {
                 var addr = self.nextOp();
-                return self.resolveAddr(addr);
+                return addr;
             },
 
             .ZeroPageX => {
@@ -171,7 +164,7 @@ pub const CPU = struct {
                 // zero page addressed reads cannot
                 // cross page boundaries.
                 addr = addr % CPU.PageSize;
-                return self.resolveAddr(addr);
+                return addr;
             },
 
             .ZeroPageY => {
@@ -180,7 +173,7 @@ pub const CPU = struct {
                 // zero page addressed reads cannot
                 // cross page boundaries.
                 addr = addr % CPU.PageSize;
-                return self.resolveAddr(addr);
+                return addr;
             },
 
             .Relative => {
@@ -192,7 +185,7 @@ pub const CPU = struct {
                 var low: u16 = self.memRead(addr);
                 var high: u16 = self.memRead(addr + 1);
                 var final_addr = low | (high << 8);
-                return self.resolveAddr(final_addr);
+                return final_addr;
             },
 
             // TODO: support zero page wrap around.
@@ -202,7 +195,7 @@ pub const CPU = struct {
                 var next_addr = @addWithOverflow(addr, 1)[0];
                 var high: u16 = self.memRead(next_addr);
                 var final_addr = low | (high << 8);
-                return self.resolveAddr(final_addr);
+                return final_addr;
             },
 
             // TODO: support zero page wrap around.
@@ -211,19 +204,20 @@ pub const CPU = struct {
                 var low: u16 = self.memRead(addr);
                 var high: u16 = self.memRead(@addWithOverflow(addr, 1)[0]);
                 var final_addr = @addWithOverflow((low | (high << 8)), self.Y)[0];
-                return self.resolveAddr(final_addr);
+                return final_addr;
             },
 
-            .Implicit => unreachable,
-            .Invalid => unreachable,
+            else => unreachable,
         }
     }
 
-    // TODO: rename to `readByte`?
     /// Depending on the addressing mode of the instruction `instr`,
     /// get a byte of the data from memory.
     fn operand(self: *Self, instr: *const Instruction) Byte {
-        return self.operandPtr(instr).*;
+        var mode = instr[1];
+        if (mode == .Accumulator) return self.A;
+        var addr = self.addrOfInstruction(instr);
+        return self.memRead(addr);
     }
 
     /// set the Z flag if the lower 8 bits of `value` are all 0.
@@ -282,6 +276,49 @@ pub const CPU = struct {
         }
     }
 
+    /// Perform the `ROL` instruction, using `byte` as the operand,
+    /// but do not write the result back to memory.
+    fn rol(self: *Self, byte: u8) u8 {
+        var old_carry: u8 = if (self.StatusRegister.C) 1 else 0;
+
+        var shlResult = @shlWithOverflow(byte, @as(u8, 1));
+
+        // set the new bit-0 to the old carry.
+        var res = shlResult[0] | old_carry;
+        self.setZN(res);
+
+        // the bit that was shifted out when performing a <<
+        var shifted_bit = shlResult[1];
+        self.StatusRegister.C = shifted_bit == 1;
+        return res;
+    }
+
+    /// Perform the `ROR` instruction using `byte` as the operand,
+    /// but do not write the result back to memory.
+    fn ror(self: *Self, byte: u8) u8 {
+        var old_carry: u8 = if (self.StatusRegister.C) 1 else 0;
+
+        var old_b0 = byte & 0b0000_0001; // old 0th bit
+        var res = byte >> 1;
+        // set the new MSB to the old carry.
+        res = res | (old_carry << 7);
+
+        self.setZN(res);
+
+        // the bit that was shifted out when performing a >>
+        self.StatusRegister.C = old_b0 == 1;
+        return res;
+    }
+
+    /// Perform the 'ASL' instruction and set appropriate flags, but do
+    /// not write the resulting back to memory.
+    fn asl(self: *Self, byte: u8) u8 {
+        var res: u16 = @as(u16, byte) << 1;
+        self.setZN(res);
+        self.setC(res);
+        return @truncate(res);
+    }
+
     /// Perform the `ADC` CPU operation on `arg`.
     fn adc(self: *Self, arg: Byte) void {
         var byte: u16 = arg;
@@ -298,6 +335,7 @@ pub const CPU = struct {
     /// Execute a single instruction.
     pub fn exec(self: *Self, instr: *const Instruction) !void {
         var op = instr[0];
+        var mode: AddrMode = instr[1];
         switch (op) {
             Op.ADC => self.adc(self.operand(instr)),
 
@@ -313,12 +351,13 @@ pub const CPU = struct {
             },
 
             Op.ASL => {
-                var dst: *u8 = self.operandPtr(instr);
-                var byte: u16 = dst.*;
-                var res = byte << 1;
-                self.setZN(res);
-                self.setC(res);
-                dst.* = @truncate(res);
+                if (mode == AddrMode.Accumulator) {
+                    self.A = self.asl(self.A);
+                } else {
+                    var dst = self.addrOfInstruction(instr);
+                    var byte = self.memRead(dst);
+                    self.memWrite(dst, self.asl(byte));
+                }
             },
 
             Op.BIT => {
@@ -348,7 +387,7 @@ pub const CPU = struct {
                 self.push(@truncate(self.PC >> 8)); // high byte
                 self.push(@truncate(self.PC)); // low byte
 
-                // There is actual "B" flag in a physical 6502 CPU.
+                // There is no actual "B" flag in a physical 6502 CPU.
                 // It is merely a bit that exists in the *flag byte*
                 // that is pushed onto the stack.
                 // When flags are restored (following an RTI), the
@@ -391,10 +430,11 @@ pub const CPU = struct {
             },
 
             Op.DEC => {
-                var dst = self.operandPtr(instr);
-                var res = @subWithOverflow(dst.*, 1)[0];
+                var dst_addr = self.addrOfInstruction(instr);
+                var byte = self.memRead(dst_addr);
+                var res = @subWithOverflow(byte, 1)[0];
                 self.setZN(res);
-                dst.* = res;
+                self.memWrite(dst_addr, res);
             },
 
             Op.DEX => {
@@ -416,10 +456,11 @@ pub const CPU = struct {
             },
 
             Op.INC => {
-                var dst = self.operandPtr(instr);
-                var res = @addWithOverflow(dst.*, 1)[0];
+                var dst = self.addrOfInstruction(instr);
+                var byte = self.memRead(dst);
+                var res = @addWithOverflow(byte, 1)[0];
                 self.setZN(res);
-                dst.* = res;
+                self.memWrite(dst, res);
             },
 
             Op.INX => {
@@ -484,11 +525,19 @@ pub const CPU = struct {
             },
 
             Op.LSR => {
-                var dst = self.operandPtr(instr);
-                self.StatusRegister.C = (dst.* & 0b0000_0001) == 1;
-                var res = dst.* >> 1;
-                dst.* = res;
-                self.setZN(res);
+                if (mode == .Accumulator) {
+                    self.StatusRegister.C = (self.A & 0b0000_0001) == 1;
+                    var res = self.A >> 1;
+                    self.setZN(res);
+                    self.A = res;
+                } else {
+                    var dst = self.addrOfInstruction(instr);
+                    var byte = self.memRead(dst);
+                    self.StatusRegister.C = (byte & 0b0000_0001) == 1;
+                    var res = byte >> 1;
+                    self.setZN(res);
+                    self.memWrite(dst, res);
+                }
             },
 
             Op.NOP => {},
@@ -527,35 +576,25 @@ pub const CPU = struct {
             },
 
             Op.ROL => {
-                var dst = self.operandPtr(instr);
-                var old_carry: u8 = if (self.StatusRegister.C) 1 else 0;
-
-                var shlResult = @shlWithOverflow(dst.*, @as(u8, 1));
-
-                // set the new bit-0 to the old carry.
-                var res = shlResult[0] | old_carry;
-                self.setZN(res);
-
-                // the bit that was shifted out when performing a <<
-                var shifted_bit = shlResult[1];
-                self.StatusRegister.C = shifted_bit == 1;
-                dst.* = res;
+                if (mode == .Accumulator) {
+                    self.A = self.rol(self.A);
+                } else {
+                    var dst = self.addrOfInstruction(instr);
+                    var byte = self.memRead(dst);
+                    var res = self.rol(byte);
+                    self.memWrite(dst, res);
+                }
             },
 
             Op.ROR => {
-                var dst = self.operandPtr(instr);
-                var old_carry: u8 = if (self.StatusRegister.C) 1 else 0;
-
-                var old_b0 = dst.* & 0b0000_0001; // old 0th bit
-                var res = dst.* >> 1;
-                // set the new MSB to the old carry.
-                res = res | (old_carry << 7);
-
-                self.setZN(res);
-
-                // the bit that was shifted out when performing a >>
-                self.StatusRegister.C = old_b0 == 1;
-                dst.* = res;
+                if (mode == .Accumulator) {
+                    self.A = self.ror(self.A);
+                } else {
+                    var dst = self.addrOfInstruction(instr);
+                    var byte = self.memRead(dst);
+                    var res = self.ror(byte);
+                    self.memWrite(dst, res);
+                }
             },
 
             Op.RTI => {
@@ -579,18 +618,18 @@ pub const CPU = struct {
             Op.SEI => self.StatusRegister.I = true,
 
             Op.STA => {
-                var dst = self.operandPtr(instr);
-                dst.* = self.A;
+                var dst = self.addrOfInstruction(instr);
+                self.memWrite(dst, self.A);
             },
 
             Op.STX => {
-                var dst = self.operandPtr(instr);
-                dst.* = self.X;
+                var dst = self.addrOfInstruction(instr);
+                self.memWrite(dst, self.X);
             },
 
             Op.STY => {
-                var dst = self.operandPtr(instr);
-                dst.* = self.Y;
+                var dst = self.addrOfInstruction(instr);
+                self.memWrite(dst, self.Y);
             },
 
             Op.TAX => {

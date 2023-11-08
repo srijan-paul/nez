@@ -12,11 +12,6 @@ pub const Bus = struct {
 
     readFn: *const fn (*Self, u16) u8,
     writeFn: *const fn (*Self, u16, u8) void,
-    resolveAddrFn: *const fn (self: *Self, addr: u16) *u8,
-
-    pub fn resolveAddr(self: *Self, addr: u16) *u8 {
-        return self.resolveAddrFn(self, addr);
-    }
 
     pub fn read(self: *Self, addr: u16) u8 {
         return self.readFn(self, addr);
@@ -33,11 +28,6 @@ pub const TestBus = struct {
     mem: [std.math.maxInt(u16) + 1]u8 = .{0} ** (std.math.maxInt(u16) + 1),
     bus: Bus,
 
-    fn resolveAddr(i_bus: *Bus, addr: u16) *u8 {
-        var self: *Self = @fieldParentPtr(Self, "bus", i_bus);
-        return &self.mem[addr];
-    }
-
     fn write(i_bus: *Bus, addr: u16, val: u8) void {
         var self: *Self = @fieldParentPtr(Self, "bus", i_bus);
         self.mem[addr] = val;
@@ -51,7 +41,6 @@ pub const TestBus = struct {
     pub fn new() TestBus {
         return .{
             .bus = .{
-                .resolveAddrFn = resolveAddr,
                 .readFn = read,
                 .writeFn = write,
             },
@@ -70,30 +59,29 @@ pub const NESBus = struct {
     // holds a reference to the CPU's 0x800 bytes of RAM.
     ram: [w_ram_size]u8 = .{0} ** w_ram_size,
 
-    fn resolveAddr(i_bus: *Bus, addr: u16) *u8 {
+    fn busRead(i_bus: *Bus, addr: u16) u8 {
         var self = @fieldParentPtr(Self, "bus", i_bus);
         if (addr < 0x2000) {
-            return &self.ram[addr % w_ram_size];
+            return self.ram[addr % w_ram_size];
         }
 
-        return self.mapper.resolveAddr(addr);
-    }
-
-    fn busRead(i_bus: *Bus, addr: u16) u8 {
-        var mem = resolveAddr(i_bus, addr);
-        return mem.*;
+        return self.mapper.read(addr);
     }
 
     fn busWrite(i_bus: *Bus, addr: u16, val: u8) void {
-        var mem = resolveAddr(i_bus, addr);
-        mem.* = val;
+        var self = @fieldParentPtr(Self, "bus", i_bus);
+        if (addr < 0x2000) {
+            self.ram[addr % w_ram_size] = val;
+        }
+
+        self.mapper.write(addr, val);
     }
 
     fn createMapper(allocator: Allocator, cart: *Cart) !*Mapper {
         var kind = cart.header.getMapper();
         if (kind == .nrom) {
             var nrom = try allocator.create(NROM);
-            nrom.init(cart);
+            nrom.* = NROM.init(cart);
             return &nrom.mapper;
         }
         unreachable;
@@ -105,7 +93,6 @@ pub const NESBus = struct {
             .allocator = allocator,
             .cart = cart,
             .bus = .{
-                .resolveAddrFn = resolveAddr,
                 .readFn = busRead,
                 .writeFn = busWrite,
             },
