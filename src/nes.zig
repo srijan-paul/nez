@@ -3,6 +3,7 @@ const CPU = @import("cpu.zig").CPU;
 const bus_mod = @import("bus.zig");
 const Cart = @import("cart.zig").Cart;
 const rl = @import("raylib");
+const PPU = @import("./ppu.zig").PPU;
 
 const Bus = bus_mod.Bus;
 const NESBus = bus_mod.NESBus;
@@ -20,6 +21,7 @@ pub const Console = struct {
     allocator: Allocator,
     cart: *Cart,
     cpu: *CPU,
+    ppu: *PPU,
     mainBus: *NESBus,
 
     /// Initialize an NES console from a ROM file.
@@ -27,8 +29,11 @@ pub const Console = struct {
         var cart = try allocator.create(Cart);
         cart.* = try Cart.loadFromFile(allocator, file_path);
 
+        var ppu = try allocator.create(PPU);
+        ppu.* = PPU{};
+
         var mainBus = try allocator.create(NESBus);
-        mainBus.* = try NESBus.init(allocator, cart);
+        mainBus.* = try NESBus.init(allocator, cart, ppu);
 
         var cpu = try allocator.create(CPU);
         cpu.* = CPU.init(allocator, &mainBus.bus);
@@ -37,6 +42,7 @@ pub const Console = struct {
             .allocator = allocator,
             .cart = cart,
             .cpu = cpu,
+            .ppu = ppu,
             .mainBus = mainBus,
         };
     }
@@ -47,6 +53,7 @@ pub const Console = struct {
 
         self.allocator.destroy(self.cart);
         self.allocator.destroy(self.cpu);
+        self.allocator.destroy(self.ppu);
         self.allocator.destroy(self.mainBus);
     }
 

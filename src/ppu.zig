@@ -95,13 +95,12 @@ pub const PPU = struct {
     }
 
     pub fn busWrite(self: *Self, addr: u16, value: u8) void {
-        _ = value;
-        _ = addr;
-        _ = self;
+        // TODO: mirroring
+        self.ppu_ram[addr] = value;
     }
 
     pub fn busRead(self: *Self, addr: u16) u8 {
-        _ = addr;
-        _ = self;
+        // TODO: mirroring.
+        return self.ppu_ram[addr];
     }
 };

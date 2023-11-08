@@ -3,6 +3,7 @@ const mapper_mod = @import("./mappers/mapper.zig");
 const NROM = @import("./mappers/nrom.zig").NROM;
 const std = @import("std");
 
+const PPU = @import("./ppu.zig").PPU;
 const MapperKind = mapper_mod.MapperKind;
 const Mapper = mapper_mod.Mapper;
 const Allocator = std.mem.Allocator;
@@ -53,16 +54,37 @@ pub const NESBus = struct {
     const w_ram_size = 0x800;
     bus: Bus,
     mapper: *Mapper,
+    ppu: *PPU,
     cart: *Cart,
     allocator: Allocator,
 
     // holds a reference to the CPU's 0x800 bytes of RAM.
     ram: [w_ram_size]u8 = .{0} ** w_ram_size,
 
+    const MMIO_addr_start: u16 = 0x2000;
+    const MMIO_addr_end: u16 = 0x4000;
+
     fn busRead(i_bus: *Bus, addr: u16) u8 {
         var self = @fieldParentPtr(Self, "bus", i_bus);
         if (addr < 0x2000) {
             return self.ram[addr % w_ram_size];
+        }
+
+        // addresses between 0x2000 and 0x4000 are MMIO for the PPU
+        if (addr < MMIO_addr_end) {
+            // TODO: simulate open bus behavior.
+            // TOOD: simulate address latch reset when reading PPUSTATUS.
+            var mmio_addr = (addr - MMIO_addr_start) % 8;
+            switch (mmio_addr) {
+                0 => return self.ppu.ppu_ctrl,
+                1 => return self.ppu.ppu_mask,
+                2 => return self.ppu.ppu_status,
+                // TODO: OAMADDR, OAMDATA, PPUSCROLL
+                3...5 => unreachable,
+                6 => self.ppu.ppu_addr,
+                7 => self.ppu.readFromPPUAddr(),
+                else => unreachable,
+            }
         }
 
         return self.mapper.read(addr);
@@ -72,6 +94,21 @@ pub const NESBus = struct {
         var self = @fieldParentPtr(Self, "bus", i_bus);
         if (addr < 0x2000) {
             self.ram[addr % w_ram_size] = val;
+        }
+
+        // address between 0x2000 and 0x4000 are MMIO for the PPU.
+        if (addr < MMIO_addr_end) {
+            var mmio_addr = (addr - MMIO_addr_start) % 8;
+            switch (mmio_addr) {
+                0 => self.ppu.ppu_ctrl = @bitCast(val),
+                1 => self.ppu.ppu_mask = @bitCast(val),
+                2 => self.ppu.ppu_status = @bitCast(val),
+                // TODO: OAMADDR, OAMDATA, PPUSCROLL
+                3...5 => unreachable,
+                6 => self.ppu.setPPUAddr(val),
+                7 => self.ppu.writePPUData(val),
+                else => unreachable,
+            }
         }
 
         self.mapper.write(addr, val);
@@ -88,10 +125,12 @@ pub const NESBus = struct {
     }
 
     /// Create a new Bus.
-    pub fn init(allocator: Allocator, cart: *Cart) !Self {
+    /// Both `cart` and `ppu` are non-owning pointers.
+    pub fn init(allocator: Allocator, cart: *Cart, ppu: *PPU) !Self {
         return .{
             .allocator = allocator,
             .cart = cart,
+            .ppu = ppu,
             .bus = .{
                 .readFn = busRead,
                 .writeFn = busWrite,
