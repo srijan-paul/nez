@@ -72,6 +72,9 @@ pub const Console = struct {
 
         for (0..@as(usize, cpu_cycles)) |_| {
             try self.cpu.tick();
+            for (0..3) |_| {
+                self.ppu.tick();
+            }
         }
 
         return cpu_cycles;

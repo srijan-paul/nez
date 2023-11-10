@@ -2,6 +2,7 @@ const rl = @import("raylib");
 const rg = @import("raygui");
 const gui = @import("./gui/gui.zig");
 const std = @import("std");
+const PPU = @import("./ppu/ppu.zig").PPU;
 const NESConsole = @import("./nes.zig").Console;
 
 const fmt = std.fmt;
@@ -21,7 +22,7 @@ pub fn main() !void {
 
     var registerWin = gui.Window.new(allocator, "CPU State", 0, 0, 160, 240);
 
-    var emu = try NESConsole.fromROMFile(allocator, "./roms/power-on.nes");
+    var emu = try NESConsole.fromROMFile(allocator, "./roms/green.nes");
     defer emu.deinit();
     emu.powerOn();
 
@@ -43,7 +44,15 @@ pub fn main() !void {
         defer rl.EndDrawing();
 
         registerWin.draw();
-        var cycles_elapsed = try emu.update(dt);
+        var cycles_elapsed: u8 = 0;
+
+        for (0..PPU.ScreenWidth) |x| {
+            for (0..PPU.ScreenHeight) |y| {
+                var color = emu.ppu.render_buffer[x * PPU.ScreenHeight + y];
+                var rlColor = rl.Color{ .r = color.r, .g = color.g, .b = color.b, .a = 255 };
+                rl.DrawPixel(@intCast(x), @intCast(y), rlColor);
+            }
+        }
 
         std.debug.print("Cycles elapsed: {}\n", .{cycles_elapsed});
         std.debug.print("Time elapsed: {}\n", .{dt});

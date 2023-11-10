@@ -667,6 +667,11 @@ pub const CPU = struct {
         }
     }
 
+    /// TODO: implement nmi
+    fn trigger_nmi(self: *Self) void {
+        _ = self;
+    }
+
     /// Fetch and decode the next instruction.
     pub fn nextInstruction(self: *Self) *const Instruction {
         var op = self.nextOp();
@@ -803,7 +808,7 @@ fn parseCPUTestCase(allocator: Allocator, testcase_str: []const u8) !std.json.Pa
     return parsed;
 }
 
-pub fn runTestsForInstruction(instr_hex: []const u8) !void {
+fn runTestsForInstruction(instr_hex: []const u8) !void {
     var instr_file = try std.mem.concat(
         T.allocator,
         u8,
@@ -836,7 +841,7 @@ pub fn runTestsForInstruction(instr_hex: []const u8) !void {
     }
 }
 
-pub fn runTestCase(test_case: *const InstrTest) !void {
+fn runTestCase(test_case: *const InstrTest) !void {
     var tbus = TestBus.new();
     var cpu = CPU.init(T.allocator, &tbus.bus);
     var received = try cpu.runFromState(&test_case.initial);
