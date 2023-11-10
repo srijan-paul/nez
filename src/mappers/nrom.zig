@@ -18,7 +18,6 @@ pub const NROM = struct {
     /// Given a 16-bit address, return a pointer to the corresponding byte
     /// in cartridge memory.
     fn resolveAddr(self: *Self, addr: u16) *u8 {
-        std.debug.print("resolveAddr: {d}", .{addr});
         std.debug.assert(addr >= prg_ram.start and addr < prg_rom_bank_2.end);
 
         // PRG RAM

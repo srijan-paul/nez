@@ -43,16 +43,20 @@ pub fn main() !void {
         rl.BeginDrawing();
         defer rl.EndDrawing();
 
-        registerWin.draw();
-        var cycles_elapsed: u8 = 0;
+        var cycles_elapsed = try emu.update(dt);
 
         for (0..PPU.ScreenWidth) |x| {
             for (0..PPU.ScreenHeight) |y| {
                 var color = emu.ppu.render_buffer[x * PPU.ScreenHeight + y];
+                std.debug.print("({}, {}) = ({}, {}, {})\n", .{ x, y, color.r, color.g, color.b });
                 var rlColor = rl.Color{ .r = color.r, .g = color.g, .b = color.b, .a = 255 };
-                rl.DrawPixel(@intCast(x), @intCast(y), rlColor);
+                rl.DrawPixel(@intCast(x + 500), @intCast(y + 500), rlColor);
             }
         }
+
+        registerWin.draw();
+
+        // print the render buf's colors
 
         std.debug.print("Cycles elapsed: {}\n", .{cycles_elapsed});
         std.debug.print("Time elapsed: {}\n", .{dt});

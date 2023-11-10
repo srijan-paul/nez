@@ -108,6 +108,7 @@ pub const NESBus = struct {
                 7 => self.ppu.writeToPPUAddr(val),
                 else => unreachable,
             }
+            return;
         }
 
         self.mapper.write(addr, val);

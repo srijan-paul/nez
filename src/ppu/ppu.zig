@@ -153,8 +153,12 @@ pub const PPU = struct {
         var fine_y = self.vram_addr.fine_y;
         var coarse_y = self.vram_addr.coarse_y;
         if (fine_y == std.math.maxInt(@TypeOf(self.vram_addr.fine_y))) {
-            coarse_y += 1;
             fine_y = 0;
+            if (coarse_y == 31) {
+                coarse_y = 0;
+            } else {
+                coarse_y += 1;
+            }
         } else {
             fine_y += 1;
         }
