@@ -34,6 +34,16 @@ pub fn main() !void {
     try registerWin.addLabel("Status", 16, 152, 56, 24);
 
     var then: u64 = @intCast(std.time.milliTimestamp());
+    var screen_img_data = rl.Image{
+        .data = &emu.ppu.render_buffer,
+        .width = PPU.ScreenWidth,
+        .height = PPU.ScreenHeight,
+        .mipmaps = 1,
+        .format = @intFromEnum(rl.rlPixelFormat.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8),
+    };
+
+    var tex = rl.LoadTextureFromImage(screen_img_data);
+    defer rl.UnloadTexture(tex);
 
     while (!rl.WindowShouldClose()) {
         var now: u64 = @intCast(std.time.milliTimestamp());
@@ -43,23 +53,13 @@ pub fn main() !void {
         rl.BeginDrawing();
         defer rl.EndDrawing();
 
-        var cycles_elapsed = try emu.update(dt);
+        _ = try emu.update(dt);
 
-        for (0..PPU.ScreenWidth) |x| {
-            for (0..PPU.ScreenHeight) |y| {
-                var color = emu.ppu.render_buffer[x * PPU.ScreenHeight + y];
-                std.debug.print("({}, {}) = ({}, {}, {})\n", .{ x, y, color.r, color.g, color.b });
-                var rlColor = rl.Color{ .r = color.r, .g = color.g, .b = color.b, .a = 255 };
-                rl.DrawPixel(@intCast(x + 500), @intCast(y + 500), rlColor);
-            }
-        }
+        rl.UpdateTexture(tex, &emu.ppu.render_buffer);
+        rl.DrawTexture(tex, 500, 500, rl.WHITE);
+        rl.DrawRectangleLines(500, 500, PPU.ScreenWidth, PPU.ScreenHeight, rl.RED);
 
         registerWin.draw();
-
-        // print the render buf's colors
-
-        std.debug.print("Cycles elapsed: {}\n", .{cycles_elapsed});
-        std.debug.print("Time elapsed: {}\n", .{dt});
 
         rl.ClearBackground(rl.BLACK);
     }
