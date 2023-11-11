@@ -6,6 +6,7 @@ const PPU = @import("./ppu/ppu.zig").PPU;
 const NESConsole = @import("./nes.zig").Console;
 
 const fmt = std.fmt;
+/// TODO: make this a relative path lol.
 const style = "/Users/srijan-paul/personal/zig/zig-out/bin/style_cyber.rgs";
 
 pub fn main() !void {
@@ -22,7 +23,7 @@ pub fn main() !void {
 
     var registerWin = gui.Window.new(allocator, "CPU State", 0, 0, 160, 240);
 
-    var emu = try NESConsole.fromROMFile(allocator, "./roms/green.nes");
+    var emu = try NESConsole.fromROMFile(allocator, "./roms/blue.nes");
     defer emu.deinit();
     emu.powerOn();
 

@@ -45,11 +45,10 @@ pub const PPU = struct {
 
     palette_attr_next_tile: u8 = 0,
 
-    // technically, both the `v` and `t` registers
-    // are 15 bits wide. But I'll use a u16 to represent.
+    /// Stores the current VRAM address when loading tile and sprite data.
     vram_addr: VRamAddr = .{},
 
-    // The "t" register is the "source of truth" for the base vram address.
+    /// The "t" register is the "source of truth" for the base vram address.
     t: VRamAddr = .{},
 
     /// the write toggle bit.
@@ -61,12 +60,10 @@ pub const PPU = struct {
     fine_x: u8 = 0,
 
     // Every 8 cycles, the PPU fetches a byte from the pattern table,
-    // and places it into an internal latch. This byte is meant to represent that
-    // latch.
-    // In the following cycle, the PPU fetches the palette attribute byte for this nametable
-    // byte.
+    // and places it into an internal latch. This byte is meant to represent that latch.
+    // In the following cycle, the PPU fetches the palette attribute byte for this nametable byte.
     // And then, it fetches two bytes,
-    // each representing a sliver of plane for the tile to be rendered.
+    // each representing a sliver of a pattern table plane for the tile to be rendered.
     nametable_byte: u8 = 0,
     attr_table_byte: u8 = 0,
     pattern_table_byte_lo: u8 = 0,
