@@ -16,6 +16,10 @@ pub const PPU = struct {
     // base address of palettes for background rendering
     const bg_palette_base_addr: u16 = 0x3F00;
 
+    /// When `true`, it means the PPU has generated an NMI interrupt,
+    /// and the CPU needs to handle it.
+    is_nmi_pending: bool = false,
+
     ppu_ram: [0x10000]u8 = [_]u8{0} ** 0x10000,
 
     ppu_ctrl: FlagCTRL = .{},
@@ -33,10 +37,8 @@ pub const PPU = struct {
     /// Current position inside the frame buffer.
     /// This depends on the current scanline and cycle.
     frame_buffer_pos: usize = 0,
-    // TODO: store the color_id (0-64) instead of the color itself.
-    // OR: replace all DrawPixel calls with a single DrawTexture or smth.
-    /// A 256x240 1D array of colors that is filled in dot-by-dot by the CPU.
-    frame_buffer: [NPixels]Color = [_]Color{.{ .r = 0, .g = 0, .b = 0 }} ** NPixels,
+    /// A 256x240 1D array of colors IDs that is filled in dot-by-dot by the CPU.
+    frame_buffer: [NPixels]u8 = .{0} ** NPixels,
     /// The actual buffer that should be drawn to the screen every frame by raylib.
     /// Note that this is stored in R8G8B8 format (24 bits-per-pixel).
     /// I store it like this so its easier to pass it to raylib for rendering
@@ -190,12 +192,11 @@ pub const PPU = struct {
 
     /// Load the PPU's shift registers with necessary data.
     pub fn visibleScanline(self: *Self) void {
-        // draw one pixel to the screen.
-
         if (self.cycle < 256) {
+            // draw one pixel to the screen.
             var frame_buf_index = @as(usize, ScreenWidth) * self.current_scanline + self.cycle;
             var render_buf_index = frame_buf_index * 3;
-            var color = &self.frame_buffer[frame_buf_index];
+            var color = &Palette[self.frame_buffer[frame_buf_index]];
             self.render_buffer[render_buf_index] = color.r;
             self.render_buffer[render_buf_index + 1] = color.g;
             self.render_buffer[render_buf_index + 2] = color.b;
@@ -249,9 +250,7 @@ pub const PPU = struct {
                     color_index |= lo_bit;
                     var color_id = self.busRead(bg_palette_base_addr + color_index);
                     std.debug.assert(color_id < 64);
-                    var color = Palette[color_id];
-
-                    self.frame_buffer[self.frame_buffer_pos] = color;
+                    self.frame_buffer[self.frame_buffer_pos] = color_id;
                     self.frame_buffer_pos += 1;
                 }
             },
@@ -282,6 +281,7 @@ pub const PPU = struct {
                 if (self.cycle == 1) {
                     // clear the vblank flag.
                     self.ppu_status.is_vblank_active = false;
+                    self.is_nmi_pending = false;
                 } else if (self.cycle >= 280 and self.cycle <= 304) {
                     // copy the t register into v.
                     // TODO: copy nametable;
@@ -297,6 +297,7 @@ pub const PPU = struct {
                 if (self.cycle == 1) {
                     // set the vblank flag.
                     self.ppu_status.is_vblank_active = true;
+                    if (self.ppu_ctrl.generate_nmi) {}
                 }
             },
 
@@ -374,7 +375,7 @@ pub const PPU = struct {
     }
 
     pub fn busWrite(self: *Self, addr: u16, value: u8) void {
-        // TODO: mirroring, increment `v` (should I)
+        // TODO: mirroring, increment `v`
         self.ppu_ram[addr] = value;
     }
 

@@ -13,6 +13,7 @@ pub const Bus = struct {
 
     readFn: *const fn (*Self, u16) u8,
     writeFn: *const fn (*Self, u16, u8) void,
+    nmiPendingFn: *const fn (*Self) bool,
 
     pub fn read(self: *Self, addr: u16) u8 {
         return self.readFn(self, addr);
@@ -20,6 +21,12 @@ pub const Bus = struct {
 
     pub fn write(self: *Self, addr: u16, val: u8) void {
         return self.writeFn(self, addr, val);
+    }
+
+    /// returns `true` if there is an NMI waiting to be serviced by the CPU.
+    /// NOTE: when called, it will reset the NMI pending flag to `false`.
+    pub fn isNMIPending(self: *Self) bool {
+        return self.nmiPendingFn(self);
     }
 };
 
@@ -39,11 +46,16 @@ pub const TestBus = struct {
         return self.mem[addr];
     }
 
+    fn isNMIPending(_: *Bus) bool {
+        return false;
+    }
+
     pub fn new() TestBus {
         return .{
             .bus = .{
                 .readFn = read,
                 .writeFn = write,
+                .nmiPendingFn = isNMIPending,
             },
         };
     }
@@ -124,6 +136,13 @@ pub const NESBus = struct {
         unreachable;
     }
 
+    fn isNMIPending(i_bus: *Bus) bool {
+        var self = @fieldParentPtr(Self, "bus", i_bus);
+        var nmi = self.ppu.is_nmi_pending;
+        self.ppu.is_nmi_pending = false;
+        return nmi;
+    }
+
     /// Create a new Bus.
     /// Both `cart` and `ppu` are non-owning pointers.
     pub fn init(allocator: Allocator, cart: *Cart, ppu: *PPU) !Self {
@@ -134,6 +153,7 @@ pub const NESBus = struct {
             .bus = .{
                 .readFn = busRead,
                 .writeFn = busWrite,
+                .nmiPendingFn = isNMIPending,
             },
             .mapper = try createMapper(allocator, cart),
         };

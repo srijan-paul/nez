@@ -667,9 +667,21 @@ pub const CPU = struct {
         }
     }
 
-    /// TODO: implement nmi
-    fn trigger_nmi(self: *Self) void {
-        _ = self;
+    /// Trigger a non-maskable interrupt.
+    fn triggerNMI(self: *Self) void {
+        // push the PCH, PCL, and P on to the stack.
+        self.push(@truncate(self.PC >> 8)); // high byte
+        self.push(@truncate(self.PC)); // low byte
+        self.push(@bitCast(self.StatusRegister));
+
+        // NMIs cannot be interrupted
+        self.StatusRegister.I = true;
+
+        // The NMI handler's address is at 0xFFFA/0xFFFB
+        var nmi_handler_addr_lo: u16 = self.memRead(0xFFFA);
+        var nmi_handler_addr_hi: u16 = self.memRead(0xFFFB);
+        var nmi_handler_addr = (nmi_handler_addr_hi << 8) | nmi_handler_addr_lo;
+        self.PC = nmi_handler_addr;
     }
 
     /// Fetch and decode the next instruction.
@@ -686,6 +698,14 @@ pub const CPU = struct {
         }
 
         try self.exec(self.currentInstr);
+
+        // If there is an NMI waiting to be serviced,
+        // handle that first.
+        if (self.bus.isNMIPending()) {
+            self.triggerNMI();
+            return;
+        }
+
         self.currentInstr = self.nextInstruction();
 
         // subtract one because of CPU cycle
