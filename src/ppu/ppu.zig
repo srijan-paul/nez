@@ -135,8 +135,7 @@ pub const PPU = struct {
             self.busRead(pt_addr + 8);
     }
 
-    /// Fetch the next byte from the name table and adjust the
-    /// `v` register accordingly.
+    /// Fetch the next byte from the name table
     fn fetchNameTableByte(self: *Self) u8 {
         var coarse_y: u16 = self.vram_addr.coarse_y;
         var coarse_x: u16 = self.vram_addr.coarse_x;
@@ -160,8 +159,8 @@ pub const PPU = struct {
     /// clock cycle.
     fn incrY(self: *Self) void {
         // TODO: nametable switching.
-        var fine_y = self.vram_addr.fine_y;
-        var coarse_y = self.vram_addr.coarse_y;
+        var fine_y: u8 = self.vram_addr.fine_y;
+        var coarse_y: u8 = self.vram_addr.coarse_y;
         if (fine_y == std.math.maxInt(@TypeOf(self.vram_addr.fine_y))) {
             fine_y = 0;
             if (coarse_y == 31) {
@@ -173,8 +172,8 @@ pub const PPU = struct {
             fine_y += 1;
         }
 
-        self.vram_addr.fine_y = fine_y;
-        self.vram_addr.coarse_y = coarse_y;
+        self.vram_addr.fine_y = @truncate(fine_y);
+        self.vram_addr.coarse_y = @truncate(coarse_y);
     }
 
     /// Increment the coarse X based on the current
@@ -190,33 +189,8 @@ pub const PPU = struct {
         self.vram_addr.coarse_x = @truncate(coarse_x);
     }
 
-    /// Load the PPU's shift registers with necessary data.
-    pub fn visibleScanline(self: *Self) void {
-        if (self.cycle < 256) {
-            // draw one pixel to the screen.
-            var frame_buf_index = @as(usize, ScreenWidth) * self.current_scanline + self.cycle;
-            var render_buf_index = frame_buf_index * 3;
-            var color = &Palette[self.frame_buffer[frame_buf_index]];
-            self.render_buffer[render_buf_index] = color.r;
-            self.render_buffer[render_buf_index + 1] = color.g;
-            self.render_buffer[render_buf_index + 2] = color.b;
-        }
-
-        if (self.cycle == 256) {
-            self.incrY();
-        }
-
-        if (self.cycle == 257) {
-            // TODO: copy nametable horizontal info
-            self.vram_addr.coarse_x = self.t.coarse_x;
-        }
-
-        // The 0th cycle is idle, nothing happens.
-        if (self.cycle == 0) {
-            return;
-        }
-
-        switch (self.cycle % 8) {
+    fn visibleDot(self: *Self, subcycle: u16) void {
+        switch (subcycle) {
             0 => {
                 self.incrCoarseX();
             },
@@ -257,6 +231,54 @@ pub const PPU = struct {
             else => {},
         }
     }
+
+    /// Load the PPU's shift registers with necessary data.
+    fn visibleScanline(self: *Self) void {
+        if (self.cycle < 256) {
+            // draw one pixel to the screen.
+            var frame_buf_index = @as(usize, ScreenWidth) * self.current_scanline + self.cycle;
+            var render_buf_index = frame_buf_index * 3;
+            var color = &Palette[self.frame_buffer[frame_buf_index]];
+            self.render_buffer[render_buf_index] = color.r;
+            self.render_buffer[render_buf_index + 1] = color.g;
+            self.render_buffer[render_buf_index + 2] = color.b;
+        }
+
+        if (self.cycle == 257) {
+            // TODO: copy nametable horizontal info
+            self.vram_addr.coarse_x = self.t.coarse_x;
+        }
+
+        // The 0th cycle is idle, nothing happens.
+        // TODO: apparently, some fetches do happen here.
+        if (self.cycle == 0) {
+            return;
+        }
+
+        var subcycle = self.cycle % 8;
+        switch (self.cycle) {
+            // visible dots that draw to the screen.
+            // 1 -> 255 are the visible dots.
+            // 321 -> 340 are cycles where the PPU fetches
+            // tile data for the next scanline.
+            1...255, 321...340 => self.visibleDot(subcycle),
+            256 => {
+                self.incrY();
+                self.incrCoarseX();
+            },
+            257 => {
+                self.vram_addr.coarse_x = self.t.coarse_x;
+            },
+            // garbage nametable byte fetches.
+            258, 260, 266, 305 => self.nametable_byte = self.fetchNameTableByte(),
+
+            else => {},
+        }
+
+        if (self.cycle >= 1 and self.cycle <= 256) {}
+    }
+
+    fn preRenderScanline(_: *Self) void {}
 
     pub fn tick(self: *PPU) void {
         // TODO: odd/even frame shenanigans.
@@ -335,7 +357,7 @@ pub const PPU = struct {
             // clear the 15th bit of t.
             t &= 0b011_1111_1111_1111;
             // get the lower 6 bits of the operand byte, and
-            // set the bits  of the t register.
+            // set the bits of the t register.
             var addr_hi: u15 = value & 0b00_111111;
             // set bits 9th-14th bits of t to addr_hi
             t |= addr_hi << 8;
@@ -354,7 +376,7 @@ pub const PPU = struct {
     }
 
     /// Read the PPUSTATUS register.
-    /// This will reset the address latch, and clear the vblank flag.
+    /// This will reset the address latch, and clear the vblank flag. // TODO: reset vbl??
     pub fn readPPUStatus(self: *Self) u8 {
         self.is_first_write = true;
         return @bitCast(self.ppu_status);
