@@ -269,13 +269,18 @@ pub const PPU = struct {
             257 => {
                 self.vram_addr.coarse_x = self.t.coarse_x;
             },
+
+            280...304 => {
+                // on 280-304th tick of the pre-render scanline, copy vertical bits of t into v.
+                if (self.cycle == 261) {
+                    self.vram_addr.coarse_y = self.t.coarse_y;
+                }
+            },
             // garbage nametable byte fetches.
             258, 260, 266, 305 => self.nametable_byte = self.fetchNameTableByte(),
 
             else => {},
         }
-
-        if (self.cycle >= 1 and self.cycle <= 256) {}
     }
 
     fn preRenderScanline(_: *Self) void {}
