@@ -257,12 +257,9 @@ pub const PPU = struct {
             return;
         }
 
-        if (self.cycle == 321 and self.current_scanline == 261) {
-            self.frame_buffer_pos = 0;
-        }
-
-        // TODO: remove this
-        if (self.current_scanline == 239 and self.cycle == 256) {
+        if ((self.cycle == 321 and self.current_scanline == 261) or
+            (self.current_scanline == 239 and self.cycle == 256))
+        {
             self.frame_buffer_pos = 0;
         }
 
