@@ -196,6 +196,7 @@ pub const PPU = struct {
             },
 
             // fetch the name table byte.
+            // 1 => {},
             2 => self.nametable_byte = self.fetchNameTableByte(),
             4 => self.attr_table_byte = self.fetchAttrTableByte(),
             6 => self.pattern_table_byte_lo = self.fetchFromPatternTable(
@@ -234,10 +235,11 @@ pub const PPU = struct {
 
     /// Load the PPU's shift registers with necessary data.
     fn visibleScanline(self: *Self) void {
-        if (self.cycle < 256) {
+        if (self.cycle < 256 and self.current_scanline < 240) {
             // draw one pixel to the screen.
             var frame_buf_index = @as(usize, ScreenWidth) * self.current_scanline + self.cycle;
             var render_buf_index = frame_buf_index * 3;
+            // std.debug.print("{d} {d}\n", .{ self.current_scanline, self.cycle });
             var color = &Palette[self.frame_buffer[frame_buf_index]];
             self.render_buffer[render_buf_index] = color.r;
             self.render_buffer[render_buf_index + 1] = color.g;
@@ -255,6 +257,22 @@ pub const PPU = struct {
             return;
         }
 
+        if (self.cycle == 321 and self.current_scanline == 261) {
+            self.frame_buffer_pos = 0;
+        }
+
+        // TODO: remove this
+        if (self.current_scanline == 239 and self.cycle == 256) {
+            self.frame_buffer_pos = 0;
+        }
+
+        if (self.frame_buffer_pos >= NPixels) {
+            std.debug.panic(
+                "framebuffer overflow at sc: {d} dot: {d}\n",
+                .{ self.current_scanline, self.cycle },
+            );
+        }
+
         var subcycle = self.cycle % 8;
         switch (self.cycle) {
             // visible dots that draw to the screen.
@@ -266,24 +284,20 @@ pub const PPU = struct {
                 self.incrY();
                 self.incrCoarseX();
             },
-            257 => {
-                self.vram_addr.coarse_x = self.t.coarse_x;
-            },
-
+            257 => self.vram_addr.coarse_x = self.t.coarse_x,
             280...304 => {
                 // on 280-304th tick of the pre-render scanline, copy vertical bits of t into v.
                 if (self.cycle == 261) {
                     self.vram_addr.coarse_y = self.t.coarse_y;
                 }
             },
+
             // garbage nametable byte fetches.
             258, 260, 266, 305 => self.nametable_byte = self.fetchNameTableByte(),
 
             else => {},
         }
     }
-
-    fn preRenderScanline(_: *Self) void {}
 
     pub fn tick(self: *PPU) void {
         // TODO: odd/even frame shenanigans.
@@ -309,11 +323,9 @@ pub const PPU = struct {
                     // clear the vblank flag.
                     self.ppu_status.is_vblank_active = false;
                     self.is_nmi_pending = false;
-                } else if (self.cycle >= 280 and self.cycle <= 304) {
-                    // copy the t register into v.
-                    // TODO: copy nametable;
-                    self.vram_addr.coarse_y = self.t.coarse_y;
                 }
+
+                self.visibleScanline();
             },
 
             0...239 => self.visibleScanline(),
@@ -324,7 +336,9 @@ pub const PPU = struct {
                 if (self.cycle == 1) {
                     // set the vblank flag.
                     self.ppu_status.is_vblank_active = true;
-                    if (self.ppu_ctrl.generate_nmi) {}
+                    if (self.ppu_ctrl.generate_nmi) {
+                        self.is_nmi_pending = true;
+                    }
                 }
             },
 

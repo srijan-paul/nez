@@ -112,6 +112,7 @@ pub const CPU = struct {
 
     // fetch the next byte to execute.
     fn nextOp(self: *Self) Byte {
+        // std.debug.print("PC: {x}\n", .{self.PC});
         var byte = self.memRead(self.PC);
         self.incPC();
         return byte;
@@ -336,6 +337,10 @@ pub const CPU = struct {
     pub fn exec(self: *Self, instr: *const Instruction) !void {
         var op = instr[0];
         var mode: AddrMode = instr[1];
+        // std.debug.print("executing: {s}, PC = ${x}\n", .{ @tagName(op), self.PC });
+        if (op == Op.BRK) {
+            std.debug.panic("!", .{});
+        }
         switch (op) {
             Op.ADC => self.adc(self.operand(instr)),
 
@@ -702,8 +707,9 @@ pub const CPU = struct {
         // If there is an NMI waiting to be serviced,
         // handle that first.
         if (self.bus.isNMIPending()) {
+            // store current PC, store current status flags,
+            // point the PC to the NMI handler addr, etc.
             self.triggerNMI();
-            return;
         }
 
         self.currentInstr = self.nextInstruction();

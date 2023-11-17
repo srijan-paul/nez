@@ -18,7 +18,9 @@ pub const NROM = struct {
     /// Given a 16-bit address, return a pointer to the corresponding byte
     /// in cartridge memory.
     fn resolveAddr(self: *Self, addr: u16) *u8 {
-        std.debug.assert(addr >= prg_ram.start and addr < prg_rom_bank_2.end);
+        if (!(addr >= prg_ram.start and addr <= prg_rom_bank_2.end)) {
+            std.debug.panic("Bad address to NROM: {x}", .{addr});
+        }
 
         // PRG RAM
         if (addr < prg_rom_bank_1.start) {

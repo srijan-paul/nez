@@ -104,6 +104,7 @@ pub const NESBus = struct {
         var self = @fieldParentPtr(Self, "bus", i_bus);
         if (addr < 0x2000) {
             self.ram[addr % w_ram_size] = val;
+            return;
         }
 
         // address between 0x2000 and 0x4000 are MMIO for the PPU.
@@ -136,6 +137,8 @@ pub const NESBus = struct {
         unreachable;
     }
 
+    /// returns `true` if there is an NMI waiting to be serviced by the CPU.
+    /// resets the NMI flag when called.
     fn isNMIPending(i_bus: *Bus) bool {
         var self = @fieldParentPtr(Self, "bus", i_bus);
         var nmi = self.ppu.is_nmi_pending;

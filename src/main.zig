@@ -23,7 +23,7 @@ pub fn main() !void {
 
     var registerWin = gui.Window.new(allocator, "CPU State", 0, 0, 160, 240);
 
-    var emu = try NESConsole.fromROMFile(allocator, "./roms/blue.nes");
+    var emu = try NESConsole.fromROMFile(allocator, "./roms/beepboop.nes");
     defer emu.deinit();
     emu.powerOn();
 
