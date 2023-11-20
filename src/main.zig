@@ -9,12 +9,43 @@ const fmt = std.fmt;
 /// TODO: make this a relative path lol.
 const style = "/Users/srijan-paul/personal/zig/zig-out/bin/style_cyber.rgs";
 
+/// Render the NES screen to the window.
+pub fn drawNesScreen(ppu: *PPU, ppu_texture: *rl.Texture2D) void {
+    const scale = struct {
+        // zig doesn't have static local vars,
+        // but I can use a local struct for the same purpose.
+        const src = rl.Rectangle{
+            .x = 0,
+            .y = 0,
+            .width = PPU.ScreenWidth,
+            .height = PPU.ScreenHeight,
+        };
+
+        const dst = rl.Rectangle{
+            .x = 0,
+            .y = 0,
+            .width = PPU.ScreenWidth * 2,
+            .height = PPU.ScreenHeight * 2,
+        };
+    };
+
+    rl.UpdateTexture(ppu_texture.*, &ppu.render_buffer);
+    rl.DrawTexturePro(
+        ppu_texture.*,
+        scale.src,
+        scale.dst,
+        rl.Vector2{ .x = 0, .y = 0 },
+        0,
+        rl.WHITE,
+    );
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
 
     rl.SetConfigFlags(rl.ConfigFlags{ .FLAG_WINDOW_RESIZABLE = false });
-    rl.InitWindow(800, 800, "rl zig test");
+    rl.InitWindow(800, 800, "nez");
     rl.SetTargetFPS(200);
 
     rg.GuiLoadStyle(style);
@@ -56,12 +87,9 @@ pub fn main() !void {
 
         _ = try emu.update(dt);
 
-        rl.UpdateTexture(tex, &emu.ppu.render_buffer);
-        rl.DrawTexture(tex, 500, 500, rl.WHITE);
-        rl.DrawRectangleLines(500, 500, PPU.ScreenWidth, PPU.ScreenHeight, rl.RED);
+        drawNesScreen(emu.ppu, &tex);
 
         registerWin.draw();
-
         rl.ClearBackground(rl.BLACK);
     }
 }

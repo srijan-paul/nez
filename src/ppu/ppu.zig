@@ -150,6 +150,7 @@ pub const PPU = struct {
         return self.busRead(nt_addr);
     }
 
+    /// TODO: make this actually work
     fn fetchAttrTableByte(self: *Self) u8 {
         _ = self;
         return 0;
@@ -260,6 +261,7 @@ pub const PPU = struct {
         if ((self.cycle == 321 and self.current_scanline == 261) or
             (self.current_scanline == 239 and self.cycle == 256))
         {
+            // TODO for scanline 239, cycle 256, the frame buf writes shouldn't happen.
             self.frame_buffer_pos = 0;
         }
 
@@ -286,6 +288,8 @@ pub const PPU = struct {
                 // on 280-304th tick of the pre-render scanline, copy vertical bits of t into v.
                 if (self.cycle == 261) {
                     self.vram_addr.coarse_y = self.t.coarse_y;
+                    self.vram_addr.fine_y = self.t.fine_y;
+                    // TODO: reset nametable bit.
                 }
             },
 
@@ -392,9 +396,10 @@ pub const PPU = struct {
     }
 
     /// Read the PPUSTATUS register.
-    /// This will reset the address latch, and clear the vblank flag. // TODO: reset vbl??
+    /// This will reset the address latch, and clear the vblank flag.
     pub fn readPPUStatus(self: *Self) u8 {
         self.is_first_write = true;
+        self.ppu_status.is_vblank_active = false;
         return @bitCast(self.ppu_status);
     }
 
