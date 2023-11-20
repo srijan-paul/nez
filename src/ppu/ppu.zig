@@ -1,8 +1,8 @@
 const std = @import("std");
 const palette = @import("./ppu-colors.zig");
 
-const Color = palette.Color;
-const Palette = palette.Palette;
+pub const Color = palette.Color;
+pub const Palette = palette.Palette;
 
 // Emulator for the NES PPU.
 pub const PPU = struct {
@@ -15,6 +15,10 @@ pub const PPU = struct {
     const nametable_size = 0x400;
     // base address of palettes for background rendering
     const bg_palette_base_addr: u16 = 0x3F00;
+
+    /// size of each pattern table (16 x 16 tiles * 8 bytes per bit-plane * 2 bit-planes per tile)
+    pub const pattern_table_size: u16 = 16 * 16 * 8 * 2; // 0x1000
+    pub const pattern_table_size_px: u16 = 128 * 128;
 
     /// When `true`, it means the PPU has generated an NMI interrupt,
     /// and the CPU needs to handle it.
@@ -425,5 +429,56 @@ pub const PPU = struct {
     pub fn busRead(self: *Self, addr: u16) u8 {
         // TODO: mirroring.
         return self.ppu_ram[addr];
+    }
+
+    /// Load the pattern table pixel colors into a buffer.
+    pub fn getPatternTableData(self: *Self, buf: []u8, pt_index: u16, palette_index: u16) void {
+        if (buf.len != pattern_table_size_px) {
+            std.debug.panic("Buffer must be of size {d}\n", .{pattern_table_size_px});
+        }
+
+        if (pt_index != 0 and pt_index != 1) {
+            std.debug.panic("Pattern table index must be either 0 or 1 \n", .{});
+        }
+
+        if (palette_index > 3) {
+            std.debug.panic("Palette index must be in range [0, 3]\n", .{});
+        }
+
+        for (0..16) |y| { // iterate over row of tiles in the pattern table.
+            var tile_y: u16 = @truncate(y);
+            for (0..16) |x| { // iterate over tiles in the PT row.
+                var tile_x: u16 = @truncate(x);
+                // address of the first byte of the tile in the pattern table.
+                // This is used to index the pattern table in PPU RAM.
+                var tile_offset = tile_y * 256 + tile_x * 16;
+                var pt_addr = pt_index * 0x1000 + tile_offset;
+
+                for (0..8) |pxrow| { // a row of pixels within the tile.
+                    var px_row: u16 = @truncate(pxrow);
+                    // each row is 2 bytes – a low byte and high byte.
+                    var lo_byte = self.busRead(pt_addr + px_row);
+                    var hi_byte = self.busRead(pt_addr + px_row + 8);
+                    // loop over each pixel in the first row of the 8x8 tile.
+                    for (0..8) |px| {
+                        var lo_bit = (lo_byte >> @truncate(px)) & 0b1;
+                        var hi_bit = (hi_byte >> @truncate(px)) & 0b1;
+
+                        var color_index = hi_bit << 1 | lo_bit;
+                        var color_id = self.busRead(bg_palette_base_addr + 16 * palette_index + color_index);
+
+                        // address of the pixel in the buffer.
+                        // it took me a good while to figure this out. OOF
+                        var buf_addr_row = tile_y * 8 + px_row;
+                        var buf_addr_col = tile_x * 8 + (7 - px);
+                        var buf_addr = buf_addr_row * 128 + buf_addr_col;
+                        std.debug.assert(buf_addr < buf.len);
+                        buf[buf_addr] = color_id;
+                    }
+
+                    // std.debug.print("{d} ", .{tile_addr + px});
+                }
+            }
+        }
     }
 };
