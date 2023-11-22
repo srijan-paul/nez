@@ -154,10 +154,28 @@ pub const PPU = struct {
         return self.busRead(nt_addr);
     }
 
-    /// TODO: make this actually work
+    /// Fetch a byte of data from the attribute table based on the current value of the
+    /// `vram_addr` (v) register.
     fn fetchAttrTableByte(self: *Self) u8 {
-        _ = self;
-        return 0;
+        var coarse_x: u16 = self.vram_addr.coarse_x;
+        var coarse_y: u16 = self.vram_addr.coarse_y;
+
+        var at_x = coarse_x / 4;
+        var at_y = coarse_y / 4;
+
+        var nt_number: u16 = self.vram_addr.nametable;
+        std.debug.assert(nt_number < 4);
+        var at_addr =
+            nametable_base_addr +
+            (nametable_size * nt_number) +
+            0x3C0 + // each nametable is 960 bytes long.
+            at_y * 8 +
+            at_x;
+
+        std.debug.print("at_addr: {d}\n", .{at_addr});
+        std.debug.assert(at_addr > nametable_base_addr + 0x3C0 and at_addr < 0x3F00);
+
+        return self.busRead(at_addr);
     }
 
     /// increment the fine and coarse Y based on the current
@@ -475,10 +493,26 @@ pub const PPU = struct {
                         std.debug.assert(buf_addr < buf.len);
                         buf[buf_addr] = color_id;
                     }
-
-                    // std.debug.print("{d} ", .{tile_addr + px});
                 }
             }
         }
     }
 };
+
+test "(PPU) fetching NT and AT bytes based on `v` register" {
+    var ppu = PPU{};
+
+    ppu.vram_addr.nametable = 2; // 3rd nametable
+    ppu.vram_addr.coarse_x = 3;
+    ppu.vram_addr.coarse_y = 5;
+    ppu.vram_addr.fine_y = 0;
+
+    ppu.ppu_ram[11208] = 42;
+    ppu.ppu_ram[10403] = 69;
+
+    var at_byte = ppu.fetchAttrTableByte();
+    try std.testing.expectEqual(@as(u8, 42), at_byte);
+
+    var nt_byte = ppu.fetchNameTableByte();
+    try std.testing.expectEqual(@as(u8, 69), nt_byte);
+}
