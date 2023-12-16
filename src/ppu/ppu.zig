@@ -35,6 +35,7 @@ pub const PPU = struct {
 
     ppu_addr: u16 = 0,
 
+    // we want to start on the pre-render scanline.
     cycle: u16 = 340,
     current_scanline: u16 = 260,
 
@@ -72,11 +73,44 @@ pub const PPU = struct {
     // each representing a sliver of a pattern table plane for the tile to be rendered.
     nametable_byte: u8 = 0,
     attr_table_byte: u8 = 0,
-    pattern_table_byte_lo: u8 = 0,
-    pattern_table_byte_hi: u8 = 0,
+
+    pt_data_lo: ShiftReg16 = .{},
+    pt_data_hi: ShiftReg16 = .{},
+
+    at_data_lo: ShiftReg8 = 0,
+    at_data_hi: ShiftReg8 = 0,
 
     const Self = @This();
-    // flags for the PPUCTRL register.
+
+    /// 16-bit shift register to hold pattern-table data.
+    /// Every 8 cycles, the data for the next tile is loaded into the upper 8 bits (next_tile).
+    /// On every visible dot, the current pixel to render is fetched from the lower 8 bits (curr_tile).
+    /// When the current pixel is fetched, the data in this register is shifted by 1 bit.
+    pub const ShiftReg16 = packed struct {
+        curr_tile: u8 = 0,
+        next_tile: u8 = 1,
+
+        /// Shift the contents of the register one bit to the right, and
+        /// return the bit that was shifted out (this will be the LSB).
+        pub fn shift(self: *ShiftReg16) void {
+            var bits: u16 = @bitCast(self.*);
+            self.* = @bitCast(bits >> 1);
+        }
+
+        /// Return the lowest bit stored in the the register as a u8.
+        pub fn lsb(self: *ShiftReg16) u8 {
+            return self.curr_tile & 0b1;
+        }
+
+        /// Set the pattern table data for the next tile.
+        pub fn setNext(self: *ShiftReg16, value: u8) void {
+            self.next_tile = value;
+        }
+    };
+
+    const ShiftReg8 = u8;
+
+    /// Flags for the PPUCTRL register.
     pub const FlagCTRL = packed struct {
         nametable_lo: u1 = 0,
         nametable_hi: u1 = 0,
@@ -88,7 +122,7 @@ pub const PPU = struct {
         generate_nmi: bool = false,
     };
 
-    // flags for the PPUMask register.
+    /// Flags for the PPUMask register.
     pub const FlagMask = packed struct {
         enhance_blue: bool = false,
         enhance_green: bool = false,
@@ -122,7 +156,7 @@ pub const PPU = struct {
         }
     };
 
-    // Fetch a byte of data from one of the two pattern tables.
+    /// Fetch a byte of data from one of the two pattern tables.
     fn fetchFromPatternTable(self: *Self, addr: u8, is_low_plane: bool) u8 {
         var fine_y: u16 = self.vram_addr.fine_y;
         var pt_number: u16 =
@@ -165,15 +199,12 @@ pub const PPU = struct {
 
         var nt_number: u16 = self.vram_addr.nametable;
         std.debug.assert(nt_number < 4);
-        var at_addr =
-            nametable_base_addr +
+        var at_base_addr = nametable_base_addr +
             (nametable_size * nt_number) +
-            0x3C0 + // each nametable is 960 bytes long.
-            at_y * 8 +
-            at_x;
+            0x3C0; // each nametable is 960 bytes long.
 
-        std.debug.print("at_addr: {d}\n", .{at_addr});
-        std.debug.assert(at_addr > nametable_base_addr + 0x3C0 and at_addr < 0x3F00);
+        var at_addr = at_base_addr + at_y * 8 + at_x;
+        std.debug.assert(at_addr >= at_base_addr and at_addr < at_base_addr + 64);
 
         return self.busRead(at_addr);
     }
@@ -212,48 +243,62 @@ pub const PPU = struct {
         self.vram_addr.coarse_x = @truncate(coarse_x);
     }
 
-    fn visibleDot(self: *Self, subcycle: u16) void {
+    /// Render a pixel to the frame buffer.
+    fn renderPixel(self: *Self) void {
+        // Fetch the pattern table bits for the current pixel.
+        // Use that to select a color from the palette.
+        // TODO: select the palette based on the attribute table.
+        var lo_bit = self.pt_data_lo.lsb();
+        var hi_bit = self.pt_data_hi.lsb();
+        var color_index = hi_bit << 1 | lo_bit;
+        var color_id = self.busRead(bg_palette_base_addr + color_index);
+        std.debug.assert(color_id < 64);
+        self.frame_buffer[self.frame_buffer_pos] = color_id;
+        self.frame_buffer_pos += 1;
+    }
+
+    /// Shift the background shift registers by one bit.
+    fn shiftBgRegsiters(self: *Self) void {
+        self.pt_data_lo.shift();
+        self.pt_data_hi.shift();
+    }
+
+    /// Based on the current sub-cycle, load background tile data
+    /// (from pattern table/ attr table/ name table)
+    /// into internal latches or shift registers.
+    fn fetchBgTile(self: *Self, subcycle: u16) void {
         switch (subcycle) {
-            0 => {
-                self.incrCoarseX();
-            },
+            0 => self.incrCoarseX(),
 
             // fetch the name table byte.
-            // 1 => {},
             2 => self.nametable_byte = self.fetchNameTableByte(),
             4 => self.attr_table_byte = self.fetchAttrTableByte(),
-            6 => self.pattern_table_byte_lo = self.fetchFromPatternTable(
+
+            // Fetch the low bit plane of the pattern table for the next tile.
+            6 => self.pt_data_lo.setNext(self.fetchFromPatternTable(
                 self.nametable_byte,
                 true,
-            ),
+            )),
+
             7 => {
-                self.pattern_table_byte_hi = self.fetchFromPatternTable(
+                self.pt_data_hi.setNext(self.fetchFromPatternTable(
                     self.nametable_byte,
                     false,
-                );
-                var hi = self.pattern_table_byte_hi;
-                var lo = self.pattern_table_byte_lo;
-                if (self.cycle >= 256) return;
-                for (0..8) |i| {
-                    // TODO: Are PT bits stored left to right or right
-                    // to left?
-                    comptime {
-                        std.debug.assert(@TypeOf(hi) == u8);
-                        std.debug.assert(@TypeOf(lo) == u8);
-                    }
-                    var color_index: u8 = 0;
-                    var lo_bit: u8 = (lo >> @truncate(i)) & 0b1;
-                    var hi_bit: u8 = (hi >> @truncate(i)) & 0b1;
-                    color_index |= hi_bit << 1;
-                    color_index |= lo_bit;
-                    var color_id = self.busRead(bg_palette_base_addr + color_index);
-                    std.debug.assert(color_id < 64);
-                    self.frame_buffer[self.frame_buffer_pos] = color_id;
-                    self.frame_buffer_pos += 1;
-                }
+                ));
             },
             else => {},
         }
+    }
+
+    /// Execute one tick in a visible scanline.
+    /// This should only be called for cycles 1 to 255 (inclusive)
+    /// in scalines 0 to 240 (inclusive). This should *not* be called for the pre-render scanline.
+    fn visibleDot(self: *Self, subcycle: u16) void {
+        // on every visible dot of a visible scanline, render a pixel.
+        self.renderPixel();
+        // shift the background registers by one bit.
+        self.shiftBgRegsiters();
+        self.fetchBgTile(subcycle);
     }
 
     /// Load the PPU's shift registers with necessary data.
@@ -269,11 +314,6 @@ pub const PPU = struct {
             self.render_buffer[render_buf_index + 2] = color.b;
         }
 
-        if (self.cycle == 257) {
-            // TODO: copy nametable horizontal info
-            self.vram_addr.coarse_x = self.t.coarse_x;
-        }
-
         // The 0th cycle is idle, nothing happens.
         // TODO: apparently, some fetches do happen here.
         if (self.cycle == 0) {
@@ -287,25 +327,50 @@ pub const PPU = struct {
             self.frame_buffer_pos = 0;
         }
 
-        if (self.frame_buffer_pos >= NPixels) {
-            std.debug.panic(
-                "framebuffer overflow at sc: {d} dot: {d}\n",
-                .{ self.current_scanline, self.cycle },
-            );
-        }
-
         var subcycle = self.cycle % 8;
         switch (self.cycle) {
             // visible dots that draw to the screen.
             // 1 -> 255 are the visible dots.
-            // 321 -> 340 are cycles where the PPU fetches
-            // tile data for the next scanline.
-            1...255, 321...340 => self.visibleDot(subcycle),
+            1...255 => self.visibleDot(subcycle),
             256 => {
                 self.incrY();
                 self.incrCoarseX();
             },
+
+            // 321 -> 336 are cycles where the PPU fetches
+            321...336 => {
+                self.shiftBgRegsiters();
+                self.fetchBgTile(subcycle);
+            },
+
+            // Unused name table fetches
+            338, 340 => self.nametable_byte = self.fetchNameTableByte(),
+
             257 => self.vram_addr.coarse_x = self.t.coarse_x,
+            // garbage nametable byte fetches.
+            258, 260, 266, 305 => self.nametable_byte = self.fetchNameTableByte(),
+
+            else => {},
+        }
+    }
+
+    fn preRenderScanline(self: *Self) void {
+        // TODO: this scanline can vary in length depending on whether its an odd or even
+        // frame. Implement this behavior.
+        switch (self.cycle) {
+            1 => {
+                if (self.cycle == 1) {
+                    // clear the vblank flag.
+                    self.ppu_status.is_vblank_active = false;
+                    self.is_nmi_pending = false;
+                }
+            },
+
+            257 => {
+                // TODO: reload all x-scroll components. unset everything else.
+                self.vram_addr.coarse_x = self.t.coarse_x;
+            },
+
             280...304 => {
                 // on 280-304th tick of the pre-render scanline, copy vertical bits of t into v.
                 if (self.cycle == 261) {
@@ -315,10 +380,10 @@ pub const PPU = struct {
                 }
             },
 
-            // garbage nametable byte fetches.
-            258, 260, 266, 305 => self.nametable_byte = self.fetchNameTableByte(),
-
-            else => {},
+            // Load the pattern table data for the next scanline
+            321...336 => {
+                self.shiftBgRegsiters();
+            },
         }
     }
 
@@ -333,15 +398,9 @@ pub const PPU = struct {
             }
         }
 
-        if (self.cycle == 0 and self.current_scanline == 0) {
-            self.frame_buffer_pos = 0;
-        }
-
         switch (self.current_scanline) {
             // pre-render scanline.
             261 => {
-                // TODO: this scanline can vary in length depending on whether its an odd or even
-                // frame. Implement this behavior.
                 if (self.cycle == 1) {
                     // clear the vblank flag.
                     self.ppu_status.is_vblank_active = false;
