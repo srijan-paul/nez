@@ -74,8 +74,20 @@ pub const PPU = struct {
     nametable_byte: u8 = 0,
     attr_table_byte: u8 = 0,
 
-    pt_data_lo: ShiftReg16 = .{},
-    pt_data_hi: ShiftReg16 = .{},
+    /// Internal registers that store the low and high bit planes
+    /// of the pattern table data for the next tile to be drawn.
+    /// When it is time to draw these tiles, the data is loaded into
+    /// the shift registers defined below.
+    /// These internal registers are filled with data on specific cycles of
+    /// visible scanlines (and the pre-render scanline) as described here:
+    /// https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
+    pattern_lo: u8 = .{},
+    pattern_hi: u8 = .{},
+
+    /// Shift registers that hold the pattern table data for the current and next tile.
+    /// Every 8 cycles, the data for the next tile is loaded into the upper 8 bits (next_tile).
+    pattern_table_shifter_lo: ShiftReg16 = .{},
+    pattern_table_shifter_hi: ShiftReg16 = .{},
 
     at_data_lo: ShiftReg8 = 0,
     at_data_hi: ShiftReg8 = 0,
@@ -248,8 +260,8 @@ pub const PPU = struct {
         // Fetch the pattern table bits for the current pixel.
         // Use that to select a color from the palette.
         // TODO: select the palette based on the attribute table.
-        var lo_bit = self.pt_data_lo.lsb();
-        var hi_bit = self.pt_data_hi.lsb();
+        var lo_bit = self.pattern_table_shifter_lo.lsb();
+        var hi_bit = self.pattern_table_shifter_hi.lsb();
         var color_index = hi_bit << 1 | lo_bit;
         var color_id = self.busRead(bg_palette_base_addr + color_index);
         std.debug.assert(color_id < 64);
@@ -257,10 +269,18 @@ pub const PPU = struct {
         self.frame_buffer_pos += 1;
     }
 
+    /// Load data from internal registers into the shift registers.
+    /// This function should be called on every cycle that is a multiple of 8.
+    fn reloadBgRegisters(self: *Self) void {
+        self.pattern_table_shifter_lo.next_tile = self.pattern_lo;
+        self.pattern_table_shifter_hi.next_tile = self.pattern_hi;
+        // TODO: also load the palette latch
+    }
+
     /// Shift the background shift registers by one bit.
     fn shiftBgRegsiters(self: *Self) void {
-        self.pt_data_lo.shift();
-        self.pt_data_hi.shift();
+        self.pattern_table_shifter_lo.shift();
+        self.pattern_table_shifter_hi.shift();
     }
 
     /// Based on the current sub-cycle, load background tile data
@@ -268,24 +288,23 @@ pub const PPU = struct {
     /// into internal latches or shift registers.
     fn fetchBgTile(self: *Self, subcycle: u16) void {
         switch (subcycle) {
-            0 => self.incrCoarseX(),
-
+            0 => {
+                self.pattern_hi = self.fetchFromPatternTable(
+                    self.nametable_byte,
+                    false,
+                );
+                self.reloadBgRegisters();
+                self.incrCoarseX();
+            },
             // fetch the name table byte.
             2 => self.nametable_byte = self.fetchNameTableByte(),
             4 => self.attr_table_byte = self.fetchAttrTableByte(),
-
             // Fetch the low bit plane of the pattern table for the next tile.
-            6 => self.pt_data_lo.setNext(self.fetchFromPatternTable(
+            6 => self.pattern_lo = self.fetchFromPatternTable(
                 self.nametable_byte,
                 true,
-            )),
-
-            7 => {
-                self.pt_data_hi.setNext(self.fetchFromPatternTable(
-                    self.nametable_byte,
-                    false,
-                ));
-            },
+            ),
+            // Fetch the high bit plane of the pattern table for the next tile.
             else => {},
         }
     }
@@ -336,20 +355,16 @@ pub const PPU = struct {
                 self.incrY();
                 self.incrCoarseX();
             },
-
+            257 => self.vram_addr.coarse_x = self.t.coarse_x,
+            258, 260, 266, 305 => self.nametable_byte = self.fetchNameTableByte(),
             // 321 -> 336 are cycles where the PPU fetches
             321...336 => {
                 self.shiftBgRegsiters();
                 self.fetchBgTile(subcycle);
             },
-
             // Unused name table fetches
             338, 340 => self.nametable_byte = self.fetchNameTableByte(),
-
-            257 => self.vram_addr.coarse_x = self.t.coarse_x,
             // garbage nametable byte fetches.
-            258, 260, 266, 305 => self.nametable_byte = self.fetchNameTableByte(),
-
             else => {},
         }
     }
