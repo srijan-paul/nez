@@ -434,7 +434,7 @@ pub const PPU = struct {
     }
 
     /// Write a byte to $2005 of CPU address space (PPUSCROLL register).
-    pub fn setPPUScroll(self: *Self, byte: u8) void {
+    pub fn writePPUScroll(self: *Self, byte: u8) void {
         if (self.is_first_write) {
             // set the fine and coarse X scroll.
             self.t.coarse_x = @truncate(byte >> 3);
@@ -484,14 +484,17 @@ pub const PPU = struct {
 
     /// Write a byte of data to the address pointed to by the PPUADDR register.
     fn writePPUData(self: *Self, value: u8) void {
-        self.busWrite(self.t, value);
+        // TODO: should I use t or v here?
+        var t: u15 = @bitCast(self.t);
+        self.busWrite(t, value);
         // TODO: increment the address based on the PPUCTRL register.
     }
 
     /// Read a byte of data from the address pointed to by the PPUADDR register.
     /// Reading from PPUDATA register reads from PPUADDR.
     fn readFromPPUAddr(self: *Self) u8 {
-        return self.busRead(self.t);
+        var t: u15 = @bitCast(self.t);
+        return self.busRead(t);
     }
 
     pub fn busWrite(self: *Self, addr: u16, value: u8) void {
@@ -517,7 +520,7 @@ pub const PPU = struct {
             2 => self.ppu_status = @bitCast(val),
             // TODO: OAMADDR, OAMDATA
             3...4 => unreachable,
-            5 => self.setPPUScroll(val),
+            5 => self.writePPUScroll(val),
             6 => self.setPPUAddr(val),
             7 => self.writePPUData(val),
             else => unreachable,
@@ -622,7 +625,20 @@ test "(PPU) writing to $2006" {
     try std.testing.expect(ppu.is_first_write);
 }
 
-test "(PPU) Writing to $2007" {
+test "(PPU) Writing to $2005" {
     var ppu = PPU{};
-    _ = ppu;
+    ppu.t = @bitCast(@as(u15, 0));
+
+    // test first write
+    try std.testing.expect(ppu.is_first_write);
+    ppu.ppuWrite(5, 0b01111_101);
+    try std.testing.expectEqual(@as(u5, 0b01111), ppu.t.coarse_x);
+    try std.testing.expectEqual(@as(u8, 0b101), ppu.fine_x);
+
+    // test second write
+    try std.testing.expect(!ppu.is_first_write);
+    ppu.ppuWrite(5, 0b01011110);
+    try std.testing.expectEqual(@as(u5, 0b01_011), ppu.t.coarse_y);
+    try std.testing.expectEqual(@as(u3, 0b110), ppu.t.fine_y);
+    try std.testing.expect(ppu.is_first_write);
 }
