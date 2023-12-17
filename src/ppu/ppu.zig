@@ -81,8 +81,8 @@ pub const PPU = struct {
     /// These internal registers are filled with data on specific cycles of
     /// visible scanlines (and the pre-render scanline) as described here:
     /// https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
-    pattern_lo: u8 = .{},
-    pattern_hi: u8 = .{},
+    pattern_lo: u8 = 0,
+    pattern_hi: u8 = 0,
 
     /// Shift registers that hold the pattern table data for the current and next tile.
     /// Every 8 cycles, the data for the next tile is loaded into the upper 8 bits (next_tile).
@@ -265,12 +265,27 @@ pub const PPU = struct {
         var color_index = hi_bit << 1 | lo_bit;
         var color_id = self.busRead(bg_palette_base_addr + color_index);
         std.debug.assert(color_id < 64);
+
+        if (self.frame_buffer_pos >= self.frame_buffer.len) {
+            var row = self.frame_buffer_pos / 256;
+            var col = self.frame_buffer_pos % 256;
+            std.debug.panic(
+                "Frame buffer overflow at SC {}, dot {}, coord({}, {})\n",
+                .{ self.current_scanline, self.cycle, row, col },
+            );
+        }
+
         self.frame_buffer[self.frame_buffer_pos] = color_id;
+        var render_buf_index = self.frame_buffer_pos * 3;
+        var color = Palette[color_id];
+        self.render_buffer[render_buf_index] = color.r;
+        self.render_buffer[render_buf_index + 1] = color.g;
+        self.render_buffer[render_buf_index + 2] = color.b;
         self.frame_buffer_pos += 1;
     }
 
     /// Load data from internal registers into the shift registers.
-    /// This function should be called on every cycle that is a multiple of 8.
+    /// This function should be called on every visible cycle that is a multiple of 8.
     fn reloadBgRegisters(self: *Self) void {
         self.pattern_table_shifter_lo.next_tile = self.pattern_lo;
         self.pattern_table_shifter_hi.next_tile = self.pattern_hi;
@@ -286,16 +301,9 @@ pub const PPU = struct {
     /// Based on the current sub-cycle, load background tile data
     /// (from pattern table/ attr table/ name table)
     /// into internal latches or shift registers.
+    /// Ref: https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
     fn fetchBgTile(self: *Self, subcycle: u16) void {
         switch (subcycle) {
-            0 => {
-                self.pattern_hi = self.fetchFromPatternTable(
-                    self.nametable_byte,
-                    false,
-                );
-                self.reloadBgRegisters();
-                self.incrCoarseX();
-            },
             // fetch the name table byte.
             2 => self.nametable_byte = self.fetchNameTableByte(),
             4 => self.attr_table_byte = self.fetchAttrTableByte(),
@@ -304,6 +312,18 @@ pub const PPU = struct {
                 self.nametable_byte,
                 true,
             ),
+
+            // Fetch the high bitplane of the pattern table for the next tile.
+            0 => {
+                self.pattern_hi = self.fetchFromPatternTable(
+                    self.nametable_byte,
+                    false,
+                );
+                // On every (8*N)th clock cycle, load the background shifters with
+                // tile data for the next tile.
+                self.reloadBgRegisters();
+                self.incrCoarseX();
+            },
             // Fetch the high bit plane of the pattern table for the next tile.
             else => {},
         }
@@ -313,51 +333,44 @@ pub const PPU = struct {
     /// This should only be called for cycles 1 to 255 (inclusive)
     /// in scalines 0 to 240 (inclusive). This should *not* be called for the pre-render scanline.
     fn visibleDot(self: *Self, subcycle: u16) void {
-        // on every visible dot of a visible scanline, render a pixel.
+        // On every visible dot of a visible scanline, render a pixel.
         self.renderPixel();
         // shift the background registers by one bit.
         self.shiftBgRegsiters();
+        // Fetch the attribute/PT/NT data for the next tile.
         self.fetchBgTile(subcycle);
     }
 
-    /// Load the PPU's shift registers with necessary data.
+    /// Execute one tick of a visible scanline (0 to 239 inclusive)
     fn visibleScanline(self: *Self) void {
-        if (self.cycle < 256 and self.current_scanline < 240) {
-            // draw one pixel to the screen.
-            var frame_buf_index = @as(usize, ScreenWidth) * self.current_scanline + self.cycle;
-            var render_buf_index = frame_buf_index * 3;
-            // std.debug.print("{d} {d}\n", .{ self.current_scanline, self.cycle });
-            var color = &Palette[self.frame_buffer[frame_buf_index]];
-            self.render_buffer[render_buf_index] = color.r;
-            self.render_buffer[render_buf_index + 1] = color.g;
-            self.render_buffer[render_buf_index + 2] = color.b;
+        // On the last cycle of the last visible scanline, reset the frame buffer position
+        // so that we begin drawing the next frame from the 0th pixel in the buffer.
+        if ((self.current_scanline == 239 and self.cycle == 340) or
+            (self.current_scanline == 0 and self.cycle == 0))
+        {
+            self.frame_buffer_pos = 0;
         }
 
         // The 0th cycle is idle, nothing happens.
-        // TODO: apparently, some fetches do happen here.
         if (self.cycle == 0) {
             return;
         }
 
-        if ((self.cycle == 321 and self.current_scanline == 261) or
-            (self.current_scanline == 239 and self.cycle == 256))
-        {
-            // TODO for scanline 239, cycle 256, the frame buf writes shouldn't happen.
-            self.frame_buffer_pos = 0;
-        }
-
         var subcycle = self.cycle % 8;
         switch (self.cycle) {
-            // visible dots that draw to the screen.
             // 1 -> 255 are the visible dots.
+            // On these dots, one pixel is rendered to the screen.
             1...255 => self.visibleDot(subcycle),
+
             256 => {
                 self.incrY();
                 self.incrCoarseX();
             },
+
             257 => self.vram_addr.coarse_x = self.t.coarse_x,
             258, 260, 266, 305 => self.nametable_byte = self.fetchNameTableByte(),
-            // 321 -> 336 are cycles where the PPU fetches
+
+            // In clocks 321...336, the PPU fetches tile data for the next scanline.
             321...336 => {
                 self.shiftBgRegsiters();
                 self.fetchBgTile(subcycle);
@@ -422,6 +435,9 @@ pub const PPU = struct {
                     self.is_nmi_pending = false;
                 }
 
+                // Even on the pre-render scanline, the PPU
+                // goes through the same motions as a visible scanline.
+                // This is done to pre-fetch the tile-data of scanline-0.
                 self.visibleScanline();
             },
 
