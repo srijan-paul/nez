@@ -275,6 +275,11 @@ pub const PPU = struct {
             );
         }
 
+        // std.debug.print(
+        // "[SC {}, dot {}, coord({}, {}), coarse-x: {}, coarse-y: {}]\n",
+        // .{ self.current_scanline, self.cycle, row, col, self.vram_addr.coarse_x, self.vram_addr.coarse_y },
+        // );
+
         self.frame_buffer[self.frame_buffer_pos] = color_id;
         var render_buf_index = self.frame_buffer_pos * 3;
         var color = Palette[color_id];
@@ -293,6 +298,10 @@ pub const PPU = struct {
     }
 
     /// Shift the background shift registers by one bit.
+    /// ------------------------------------------------
+    /// The NES contains shift registers that store pattern table data for background tiles.
+    /// Every clock cycle, the contents of these registers are shifted by one bit.
+    /// The bit that is shifted out represents the color of the current pixel.
     fn shiftBgRegsiters(self: *Self) void {
         self.pattern_table_shifter_lo.shift();
         self.pattern_table_shifter_hi.shift();
@@ -341,6 +350,20 @@ pub const PPU = struct {
         self.fetchBgTile(subcycle);
     }
 
+    /// Copy the vertical bits from the `t` register into the `v` register.
+    fn resetVert(self: *Self) void {
+        self.vram_addr.coarse_y = self.t.coarse_y;
+        self.vram_addr.fine_y = self.t.fine_y;
+        self.vram_addr.nametable = (self.vram_addr.nametable & 0b01) | (self.t.nametable & 0b10);
+    }
+
+    /// Copy the horizontal bits from the `t` register into the `v` register.
+    fn resetHorz(self: *Self) void {
+        self.vram_addr.coarse_x = self.t.coarse_x;
+        self.vram_addr.nametable =
+            (self.vram_addr.nametable & 0b10) | (self.t.nametable & 0b01);
+    }
+
     /// Execute one tick of a visible scanline (0 to 239 inclusive)
     fn visibleScanline(self: *Self) void {
         // On the last cycle of the last visible scanline, reset the frame buffer position
@@ -351,9 +374,17 @@ pub const PPU = struct {
             self.frame_buffer_pos = 0;
         }
 
-        // The 0th cycle is idle, nothing happens.
+        var is_prerender_line = self.current_scanline == 261;
+
+        // The 0th cycle is idle, nothing happens apart from regular rendering.
         if (self.cycle == 0) {
+            self.renderPixel();
+            self.shiftBgRegsiters();
             return;
+        }
+
+        if (is_prerender_line and self.cycle >= 280 and self.cycle <= 304) {
+            self.resetVert();
         }
 
         var subcycle = self.cycle % 8;
@@ -367,7 +398,10 @@ pub const PPU = struct {
                 self.incrCoarseX();
             },
 
-            257 => self.vram_addr.coarse_x = self.t.coarse_x,
+            // Once we're done drawing the last pixel of a scanline,
+            // reset the horizontal tile position in the `v` register.
+            257 => self.resetHorz(),
+
             258, 260, 266, 305 => self.nametable_byte = self.fetchNameTableByte(),
 
             // In clocks 321...336, the PPU fetches tile data for the next scanline.
