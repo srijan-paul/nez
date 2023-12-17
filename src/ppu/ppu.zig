@@ -539,6 +539,36 @@ pub const PPU = struct {
         return self.ppu_ram[addr];
     }
 
+    /// Write a byte of data to the PPU registers.
+    /// The address must be in range [0, 7].
+    pub fn ppuWrite(self: *Self, addr: u16, val: u8) void {
+        switch (addr) {
+            0 => self.ppu_ctrl = @bitCast(val),
+            1 => self.ppu_mask = @bitCast(val),
+            2 => self.ppu_status = @bitCast(val),
+            // TODO: OAMADDR, OAMDATA
+            3...4 => unreachable,
+            5 => self.setPPUScroll(val),
+            6 => self.setPPUAddr(val),
+            7 => self.writeToPPUAddr(val),
+            else => unreachable,
+        }
+    }
+
+    /// Read a byte of data from one of the PPU registers.
+    /// The address must be in range [0, 7].
+    pub fn ppuRead(self: *Self, addr: u16) u8 {
+        switch (addr) {
+            0 => return @bitCast(self.ppu_ctrl),
+            1 => return @bitCast(self.ppu_mask),
+            2 => return self.readPPUStatus(),
+            // TODO: OAMADDR, OAMDATA, PPUSCROLL
+            3...6 => unreachable,
+            7 => return self.readFromPPUAddr(),
+            else => unreachable,
+        }
+    }
+
     /// Load the pattern table pixel colors into a buffer.
     pub fn getPatternTableData(self: *Self, buf: []u8, pt_index: u16, palette_index: u16) void {
         if (buf.len != pattern_table_size_px) {

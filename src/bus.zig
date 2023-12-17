@@ -86,15 +86,7 @@ pub const NESBus = struct {
         if (addr < MMIO_addr_end) {
             // TODO: simulate open bus behavior.
             var mmio_addr = (addr - MMIO_addr_start) % 8;
-            switch (mmio_addr) {
-                0 => return @bitCast(self.ppu.ppu_ctrl),
-                1 => return @bitCast(self.ppu.ppu_mask),
-                2 => return self.ppu.readPPUStatus(),
-                // TODO: OAMADDR, OAMDATA, PPUSCROLL
-                3...6 => unreachable,
-                7 => return self.ppu.readFromPPUAddr(),
-                else => unreachable,
-            }
+            return self.ppu.ppuRead(mmio_addr);
         }
 
         return self.mapper.read(addr);
@@ -110,17 +102,7 @@ pub const NESBus = struct {
         // address between 0x2000 and 0x4000 are MMIO for the PPU.
         if (addr < MMIO_addr_end) {
             var mmio_addr = (addr - MMIO_addr_start) % 8;
-            switch (mmio_addr) {
-                0 => self.ppu.ppu_ctrl = @bitCast(val),
-                1 => self.ppu.ppu_mask = @bitCast(val),
-                2 => self.ppu.ppu_status = @bitCast(val),
-                // TODO: OAMADDR, OAMDATA
-                3...4 => unreachable,
-                5 => self.ppu.setPPUScroll(val),
-                6 => self.ppu.setPPUAddr(val),
-                7 => self.ppu.writeToPPUAddr(val),
-                else => unreachable,
-            }
+            self.ppu.ppuWrite(mmio_addr, val);
             return;
         }
 
