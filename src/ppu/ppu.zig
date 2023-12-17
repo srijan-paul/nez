@@ -33,8 +33,6 @@ pub const PPU = struct {
     // read-only
     ppu_status: FlagStatus = .{},
 
-    ppu_addr: u16 = 0,
-
     // we want to start on the pre-render scanline.
     cycle: u16 = 340,
     current_scanline: u16 = 260,
@@ -60,7 +58,7 @@ pub const PPU = struct {
 
     /// the write toggle bit.
     /// This is shared by PPU registers at $2005 and $2006
-    is_first_write: bool = false,
+    is_first_write: bool = true,
 
     /// In the original 2A03 chip, this was a 3-bit register.
     /// But mine is a u8 just so a modern CPU can crunch this number quick.
@@ -124,8 +122,10 @@ pub const PPU = struct {
 
     /// Flags for the PPUCTRL register.
     pub const FlagCTRL = packed struct {
-        nametable_lo: u1 = 0,
-        nametable_hi: u1 = 0,
+        // selects one out of 4 name tables.
+        // 0: $2000; 1: $2400; 2: $2800; 3: $2C00
+        nametable_number: u2 = 0,
+        // 0: add 1; 1: add 32
         increment_mode: bool = false,
         pattern_sprite: bool = false,
         pattern_background: bool = false,
@@ -382,39 +382,7 @@ pub const PPU = struct {
         }
     }
 
-    fn preRenderScanline(self: *Self) void {
-        // TODO: this scanline can vary in length depending on whether its an odd or even
-        // frame. Implement this behavior.
-        switch (self.cycle) {
-            1 => {
-                if (self.cycle == 1) {
-                    // clear the vblank flag.
-                    self.ppu_status.is_vblank_active = false;
-                    self.is_nmi_pending = false;
-                }
-            },
-
-            257 => {
-                // TODO: reload all x-scroll components. unset everything else.
-                self.vram_addr.coarse_x = self.t.coarse_x;
-            },
-
-            280...304 => {
-                // on 280-304th tick of the pre-render scanline, copy vertical bits of t into v.
-                if (self.cycle == 261) {
-                    self.vram_addr.coarse_y = self.t.coarse_y;
-                    self.vram_addr.fine_y = self.t.fine_y;
-                    // TODO: reset nametable bit.
-                }
-            },
-
-            // Load the pattern table data for the next scanline
-            321...336 => {
-                self.shiftBgRegsiters();
-            },
-        }
-    }
-
+    /// Excute a single clock cycle of the PPU.
     pub fn tick(self: *PPU) void {
         // TODO: odd/even frame shenanigans.
         self.cycle += 1;
@@ -456,7 +424,7 @@ pub const PPU = struct {
             },
 
             242...260 => {
-                // idle scanlines. Nothing happens.
+                // Idle scanlines. Nothing happens.
                 // Also known as the "VBLANK" phase.
                 // The CPU freely access the PPU contents during this time.
             },
@@ -483,23 +451,22 @@ pub const PPU = struct {
     /// Write to the PPUADDR register ($2006 of CPU address space).
     pub fn setPPUAddr(self: *Self, value: u8) void {
         if (self.is_first_write) {
-            // set high byte
-            self.ppu_addr = @as(u16, value) << 8;
+            // 1. Get the lower 6 bits of the operand byte, and
+            // 2. Set the bits 9-14 of the t register.
+            // 3. Clear the 15th bit of the t register.
             var t: u15 = @bitCast(self.t);
-            // clear the 15th bit of t.
-            t &= 0b011_1111_1111_1111;
-            // get the lower 6 bits of the operand byte, and
-            // set the bits of the t register.
             var addr_hi: u15 = value & 0b00_111111;
-            // set bits 9th-14th bits of t to addr_hi
-            t |= addr_hi << 8;
+            // Note that the 15th bit of t is also being cleared here.
+            // Because the address space of the PPU is 14-bits, the 15-bit bit is always 0.
+            t = (t & 0b0_000_000_1111_1111) | (addr_hi << 8);
             self.t = @bitCast(t);
         } else {
-            self.ppu_addr = self.ppu_addr | @as(u16, value);
+            // Write the byte to the lower 8 bits of t.
             var t: u15 = @bitCast(self.t);
-            var lo: u15 = value; // lower 8 bits
-            var hi: u15 = t & 0b1111_111_0000_0000; // high 7 bits
-            t = lo | hi;
+            var lo: u15 = value;
+            // Clear the existing lower 8 bits of t.
+            // Then set the lower 8 bits of t to the operand byte.
+            t = (t & 0b1111_111_0000_0000) | lo;
             self.t = @bitCast(t);
             self.vram_addr = self.t;
         }
@@ -509,24 +476,22 @@ pub const PPU = struct {
 
     /// Read the PPUSTATUS register.
     /// This will reset the address latch, and clear the vblank flag.
-    pub fn readPPUStatus(self: *Self) u8 {
+    fn readPPUStatus(self: *Self) u8 {
         self.is_first_write = true;
         self.ppu_status.is_vblank_active = false;
         return @bitCast(self.ppu_status);
     }
 
-    /// Writing to PPUDATA register writes to PPUADDR.
     /// Write a byte of data to the address pointed to by the PPUADDR register.
-    pub fn writeToPPUAddr(self: *Self, value: u8) void {
-        self.busWrite(self.ppu_addr, value);
+    fn writePPUData(self: *Self, value: u8) void {
+        self.busWrite(self.t, value);
         // TODO: increment the address based on the PPUCTRL register.
-        self.ppu_addr += 1;
     }
 
     /// Read a byte of data from the address pointed to by the PPUADDR register.
     /// Reading from PPUDATA register reads from PPUADDR.
-    pub fn readFromPPUAddr(self: *Self) u8 {
-        return self.busRead(self.ppu_addr);
+    fn readFromPPUAddr(self: *Self) u8 {
+        return self.busRead(self.t);
     }
 
     pub fn busWrite(self: *Self, addr: u16, value: u8) void {
@@ -543,14 +508,18 @@ pub const PPU = struct {
     /// The address must be in range [0, 7].
     pub fn ppuWrite(self: *Self, addr: u16, val: u8) void {
         switch (addr) {
-            0 => self.ppu_ctrl = @bitCast(val),
+            0 => {
+                self.ppu_ctrl = @bitCast(val);
+                // Writing to PPUCTRL also sets the nametable number in the `t` register.
+                self.t.nametable = self.ppu_ctrl.nametable_number;
+            },
             1 => self.ppu_mask = @bitCast(val),
             2 => self.ppu_status = @bitCast(val),
             // TODO: OAMADDR, OAMDATA
             3...4 => unreachable,
             5 => self.setPPUScroll(val),
             6 => self.setPPUAddr(val),
-            7 => self.writeToPPUAddr(val),
+            7 => self.writePPUData(val),
             else => unreachable,
         }
     }
@@ -635,4 +604,25 @@ test "(PPU) fetching NT and AT bytes based on `v` register" {
 
     var nt_byte = ppu.fetchNameTableByte();
     try std.testing.expectEqual(@as(u8, 69), nt_byte);
+}
+
+test "(PPU) writing to $2006" {
+    var ppu = PPU{};
+    ppu.t = @bitCast(@as(u15, 0b0000_000_1010_1010));
+    ppu.vram_addr = ppu.t;
+
+    // test first write
+    ppu.ppuWrite(6, 0b0011_1101);
+    try std.testing.expectEqual(@as(u15, 0b0111101_1010_1010), @as(u15, @bitCast(ppu.t)));
+    try std.testing.expect(!ppu.is_first_write);
+
+    // test second write
+    ppu.ppuWrite(6, 0b0011_1101);
+    try std.testing.expectEqual(@as(u15, 0b0111101_0011_1101), @as(u15, @bitCast(ppu.t)));
+    try std.testing.expect(ppu.is_first_write);
+}
+
+test "(PPU) Writing to $2007" {
+    var ppu = PPU{};
+    _ = ppu;
 }
