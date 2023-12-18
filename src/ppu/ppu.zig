@@ -10,11 +10,14 @@ pub const PPU = struct {
     pub const ScreenHeight = 240;
     pub const NPixels = ScreenWidth * ScreenHeight;
 
+    /// Base address of nametables in PPU memory.
     const nametable_base_addr: u16 = 0x2000;
-    // nametable bytes + attribute bytes.
+    /// Nametable bytes + attribute bytes = 1024 bytes total.
     const nametable_size = 0x400;
-    // base address of palettes for background rendering
+    /// Base address of palettes for background rendering
     const bg_palette_base_addr: u16 = 0x3F00;
+    /// Size of each palette in bytes (= 4).
+    const bg_palette_size: u16 = 4;
 
     /// size of each pattern table (16 x 16 tiles * 8 bytes per bit-plane * 2 bit-planes per tile)
     pub const pattern_table_size: u16 = 16 * 16 * 8 * 2; // 0x1000
@@ -126,7 +129,7 @@ pub const PPU = struct {
         // 0: $2000; 1: $2400; 2: $2800; 3: $2C00
         nametable_number: u2 = 0,
         // 0: add 1; 1: add 32
-        increment_mode: bool = false,
+        increment_mode_32: bool = false,
         pattern_sprite: bool = false,
         pattern_background: bool = false,
         sprite_size: bool = false,
@@ -308,7 +311,7 @@ pub const PPU = struct {
     }
 
     /// Based on the current sub-cycle, load background tile data
-    /// (from pattern table/ attr table/ name table)
+    /// (from pattern table / attr table / name table)
     /// into internal latches or shift registers.
     /// Ref: https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
     fn fetchBgTile(self: *Self, subcycle: u16) void {
@@ -333,7 +336,6 @@ pub const PPU = struct {
                 self.reloadBgRegisters();
                 self.incrCoarseX();
             },
-            // Fetch the high bit plane of the pattern table for the next tile.
             else => {},
         }
     }
@@ -517,11 +519,14 @@ pub const PPU = struct {
     }
 
     /// Write a byte of data to the address pointed to by the PPUADDR register.
+    /// This will also auto-increment the PPUADDR register by an amount that depends
+    /// on the value of a control bit in the PPUCTRL register.
     fn writePPUData(self: *Self, value: u8) void {
-        // TODO: should I use t or v here?
         var t: u15 = @bitCast(self.t);
         self.busWrite(t, value);
-        // TODO: increment the address based on the PPUCTRL register.
+        var addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
+        t = @addWithOverflow(t, addr_increment)[0];
+        self.t = @bitCast(t);
     }
 
     /// Read a byte of data from the address pointed to by the PPUADDR register.
@@ -532,7 +537,7 @@ pub const PPU = struct {
     }
 
     pub fn busWrite(self: *Self, addr: u16, value: u8) void {
-        // TODO: mirroring, increment `v`
+        // TODO: mirroring
         self.ppu_ram[addr] = value;
     }
 
@@ -573,6 +578,23 @@ pub const PPU = struct {
             7 => return self.readFromPPUAddr(),
             else => unreachable,
         }
+    }
+
+    /// Load a 4-item buffer with colors from the specified PPU palette.
+    pub fn getPaletteColors(self: *Self, palette_index: u8) [4]u8 {
+        std.debug.assert(palette_index < 4);
+
+        var colors_buf: [4]u8 = undefined;
+        for (0..4) |i| {
+            var iu16: u16 = @truncate(i);
+            colors_buf[i] = self.busRead(
+                bg_palette_base_addr + // base address of PPU palette RAM
+                    (bg_palette_size * palette_index) + // offset to the palette
+                    iu16, // offset to the color
+            );
+        }
+
+        return colors_buf;
     }
 
     /// Load the pattern table pixel colors into a buffer.

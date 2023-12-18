@@ -43,6 +43,56 @@ pub fn drawNesScreen(ppu: *PPU, ppu_texture: *rl.Texture2D) void {
     );
 }
 
+const UIPositions = struct {
+    pub const palette_y = (PPU.ScreenHeight * 2 + 16);
+    pub const pattern_table_y = (PPU.ScreenHeight * 2 + 80);
+};
+
+const PaletteView = struct {
+    const Self = @This();
+    ppu: *PPU,
+
+    pub fn init(ppu: *PPU) Self {
+        return .{ .ppu = ppu };
+    }
+
+    /// Draw the palette at index i
+    fn drawPalette(self: *Self, palette_index: u8, x: i32, y: i32) void {
+        var color_ids = self.ppu.getPaletteColors(palette_index);
+
+        var xoff: i32 = 0;
+        for (0..4) |i| {
+            var color = PPUPalette[color_ids[i]];
+            var rlColor = rl.Color{
+                .r = color.r,
+                .g = color.g,
+                .b = color.b,
+                .a = 255,
+            };
+
+            rl.DrawRectangle(x + xoff, y, 16, 12, rlColor);
+            xoff += 16 + 1;
+        }
+    }
+
+    /// Draw the palettes from the PPU memory.
+    pub fn draw(self: *Self) void {
+        var x: i32 = 0;
+        var y: i32 = UIPositions.palette_y;
+
+        var xoff: i32 = 4;
+        var yoff: i32 = 4;
+
+        rl.DrawText("Palettes", x + xoff, y + yoff, 16, rl.WHITE);
+
+        yoff += 20;
+        for (0..4) |i| {
+            self.drawPalette(@truncate(i), x + xoff, y + yoff);
+            xoff += 70;
+        }
+    }
+};
+
 const PatternTableView = struct {
     const Self = @This();
 
@@ -112,14 +162,14 @@ const PatternTableView = struct {
 
         var pt_text = if (pt_index == 0) "Pattern Table 0" else "Pattern Table 1";
 
-        rl.DrawText(pt_text, @intFromFloat(xoff), PPU.ScreenHeight * 2 + 16, 16, rl.WHITE);
+        rl.DrawText(pt_text, @intFromFloat(xoff), UIPositions.pattern_table_y, 16, rl.WHITE);
         rl.DrawTexturePro(
             self.texture,
             srcScale,
             dstScale,
             rl.Vector2{
                 .x = -xoff,
-                .y = -(PPU.ScreenHeight * 2 + 32),
+                .y = -(UIPositions.pattern_table_y + 20),
             },
             0,
             rl.WHITE,
@@ -168,6 +218,8 @@ pub fn main() !void {
     var pt_view = try PatternTableView.init(allocator);
     defer pt_view.deinit();
 
+    var palette_view = PaletteView.init(emu.ppu);
+
     while (!rl.WindowShouldClose()) {
         var now: u64 = @intCast(std.time.milliTimestamp());
         var dt: u64 = now - then;
@@ -181,6 +233,8 @@ pub fn main() !void {
         drawNesScreen(emu.ppu, &tex);
         pt_view.draw(emu.ppu, 0);
         pt_view.draw(emu.ppu, 1);
+
+        palette_view.draw();
 
         registerWin.draw();
         rl.ClearBackground(rl.BLACK);
