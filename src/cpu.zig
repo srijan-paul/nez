@@ -16,7 +16,6 @@ const Instruction = opcode.Instruction;
 const NESError = util.NESError;
 
 pub const Register = u8;
-pub const Byte = u8;
 
 pub const StatusRegister = packed struct {
     // Carry Flag
@@ -63,7 +62,7 @@ pub const CPU = struct {
     // capacity of the RAM chip attached to the CPU in bytes
     // (called SRAM (S = static), or WRAM(W = work))
     pub const w_ram_size = 0x800;
-    RAM: [w_ram_size]Byte = .{0} ** w_ram_size,
+    RAM: [w_ram_size]u8 = .{0} ** w_ram_size,
     // number of cycles to cycles to wait
     // before executing the next instruction.
     cycles_to_wait: u8 = 0,
@@ -97,12 +96,12 @@ pub const CPU = struct {
     }
 
     /// Read a byte of data from `addr` in memory.
-    pub fn memRead(self: *Self, addr: u16) Byte {
+    pub fn memRead(self: *Self, addr: u16) u8 {
         return self.bus.read(addr);
     }
 
     /// Write a byte of data to `addr` in memory.
-    pub fn memWrite(self: *Self, addr: u16, byte: Byte) void {
+    pub fn memWrite(self: *Self, addr: u16, byte: u8) void {
         self.bus.write(addr, byte);
     }
 
@@ -111,7 +110,7 @@ pub const CPU = struct {
     }
 
     // fetch the next byte to execute.
-    fn nextOp(self: *Self) Byte {
+    fn nextOp(self: *Self) u8 {
         var byte = self.memRead(self.PC);
         self.incPC();
         return byte;
@@ -213,7 +212,7 @@ pub const CPU = struct {
 
     /// Depending on the addressing mode of the instruction `instr`,
     /// get a byte of the data from memory.
-    fn operand(self: *Self, instr: *const Instruction) Byte {
+    fn operand(self: *Self, instr: *const Instruction) u8 {
         var mode = instr[1];
         if (mode == .Accumulator) return self.A;
         var addr = self.addrOfInstruction(instr);
@@ -238,7 +237,7 @@ pub const CPU = struct {
 
     /// set the `C` flag if `value` is greater than 0xFF (u8 max).
     fn setC(self: *Self, value: u16) void {
-        self.StatusRegister.C = value > std.math.maxInt(Byte);
+        self.StatusRegister.C = value > std.math.maxInt(u8);
     }
 
     /// Get the address pointed to the by the current stack pointer.
@@ -320,7 +319,7 @@ pub const CPU = struct {
     }
 
     /// Perform the `ADC` CPU operation on `arg`.
-    fn adc(self: *Self, arg: Byte) void {
+    fn adc(self: *Self, arg: u8) void {
         var byte: u16 = arg;
         var carry: u16 = if (self.StatusRegister.C) 1 else 0;
         var sum: u16 = self.A + byte + carry;
@@ -809,7 +808,7 @@ test "CPU:init" {
 test "CPU:nextOp" {
     var tbus = TestBus.new();
     var cpu = CPU.init(T.allocator, &tbus.bus);
-    var op: Byte = 0x42;
+    var op: u8 = 0x42;
     tbus.mem[0] = op;
     cpu.PC = 0;
 

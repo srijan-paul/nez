@@ -109,11 +109,11 @@ pub const NESBus = struct {
         self.mapper.write(addr, val);
     }
 
-    fn createMapper(allocator: Allocator, cart: *Cart) !*Mapper {
+    fn createMapper(allocator: Allocator, cart: *Cart, ppu: *PPU) !*Mapper {
         var kind = cart.header.getMapper();
         if (kind == .nrom) {
             var nrom = try allocator.create(NROM);
-            nrom.* = NROM.init(cart);
+            nrom.* = NROM.init(cart, ppu);
             return &nrom.mapper;
         }
         unreachable;
@@ -140,7 +140,7 @@ pub const NESBus = struct {
                 .writeFn = busWrite,
                 .nmiPendingFn = isNMIPending,
             },
-            .mapper = try createMapper(allocator, cart),
+            .mapper = try createMapper(allocator, cart, ppu),
         };
     }
 

@@ -8,7 +8,9 @@ pub const Mapper = struct {
     const Self = @This();
 
     pub const ReadFn = *const fn (*Mapper, u16) u8;
+    pub const PPUReadFn = *const fn (*Mapper, u16) u8;
     pub const WriteFn = *const fn (*Mapper, u16, u8) void;
+    pub const PPUWriteFn = *const fn (*Mapper, u16, u8) void;
 
     /// A pointer to the read-function implemented by
     /// the concrete mapper type.
@@ -17,6 +19,14 @@ pub const Mapper = struct {
     /// A pointer to the write-function implemented by
     /// the concrete mapper type.
     writeFn: WriteFn,
+
+    /// A pointer to the PPU read-function implemented the
+    /// concrete mapper type.
+    ppuReadFn: ReadFn,
+
+    /// A pointer to the PPU write-function implemented by
+    /// the concrete mapper type.
+    ppuWriteFn: WriteFn,
 
     /// Initialize a mapper.
     /// `impl`: a mapper implementation.
@@ -27,10 +37,14 @@ pub const Mapper = struct {
     pub fn init(
         readFn: ReadFn,
         writeFn: WriteFn,
+        ppuReadFn: PPUReadFn,
+        ppuWriteFn: PPUWriteFn,
     ) Self {
         return .{
             .readFn = readFn,
             .writeFn = writeFn,
+            .ppuReadFn = ppuReadFn,
+            .ppuWriteFn = ppuWriteFn,
         };
     }
 
@@ -42,5 +56,15 @@ pub const Mapper = struct {
     /// Write a byte of data to cartridge memory.
     pub fn write(self: *Self, addr: u16, value: u8) void {
         self.writeFn(self, addr, value);
+    }
+
+    /// Read a byte of data from PPU address space.
+    pub fn ppuRead(self: *Self, addr: u16) u8 {
+        return self.ppuReadFn(self, addr);
+    }
+
+    /// Write a byte of data to PPU address space.
+    pub fn ppuWrite(self: *Self, addr: u16, value: u8) void {
+        self.PPUWriteFn(self, addr, value);
     }
 };

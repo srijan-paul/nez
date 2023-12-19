@@ -1,5 +1,6 @@
 const std = @import("std");
 const palette = @import("./ppu-colors.zig");
+const Mapper = @import("../mappers/mapper.zig").Mapper;
 
 pub const Color = palette.Color;
 pub const Palette = palette.Palette;
@@ -93,6 +94,8 @@ pub const PPU = struct {
     at_data_lo: ShiftReg8 = 0,
     at_data_hi: ShiftReg8 = 0,
 
+    mapper: *Mapper,
+
     const Self = @This();
 
     /// 16-bit shift register to hold pattern-table data.
@@ -170,6 +173,10 @@ pub const PPU = struct {
             std.debug.assert(@bitSizeOf(VRamAddr) == 15);
         }
     };
+
+    pub fn init(mapper: *Mapper) PPU {
+        return Self{ .mapper = mapper };
+    }
 
     /// Fetch a byte of data from one of the two pattern tables.
     fn fetchFromPatternTable(self: *Self, addr: u8, is_low_plane: bool) u8 {
@@ -538,12 +545,15 @@ pub const PPU = struct {
     }
 
     pub fn busWrite(self: *Self, addr: u16, value: u8) void {
-        // TODO: mirroring
+        // TODO: mirroring, mapper.
         self.ppu_ram[addr] = value;
     }
 
     pub fn busRead(self: *Self, addr: u16) u8 {
-        // TODO: mirroring.
+        if (addr < 0x2000) {
+            return self.mapper.ppuRead(addr);
+        }
+        // TODO: mirroring
         return self.ppu_ram[addr];
     }
 

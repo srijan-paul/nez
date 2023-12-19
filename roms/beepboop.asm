@@ -1,3 +1,13 @@
+; PPU register mnemonics
+PPUCTRL   = $2000
+PPUMASK   = $2001
+PPUSTATUS = $2002
+PPUADDR   = $2006
+PPUDATA   = $2007
+OAMADDR   = $2003
+OAMDMA    = $4014
+
+
 .segment "HEADER"
 
 .byte $4e, $45, $53, $1a, $02, $01, $00, $00
@@ -46,23 +56,42 @@ load_color_to_ppu:
   LDX $2002 ; reset the address latch write toggle.
 
   LDX #$3f  ; point address latch to $3f00
-  STX $2006 
+  STX PPUADDR
   LDX #$00
-  STX $2006
+  STX PPUADDR
   LDA current_color  ; write the color to the palette bg color addr.
-  STA $2007
+  STA PPUDATA
 
 skip:
   RTI
 .endproc
 
+PaletteData:
+  .byte $0F,$31,$32,$33,$0F,$35,$36,$37,$0F,$39,$3A,$3B,$0F,$3D,$3E,$0F  ;background palette data
+  .byte $0F,$1C,$15,$14,$0F,$02,$38,$3C,$0F,$1C,$15,$14,$0F,$02,$38,$3C  ;sprite palette data
 
 .proc reset_handler
   SEI
 
   CLD
 
-  ; set the first color to green.
+
+	LDA PPUSTATUS ; reset rw toggle
+	LDA #$3F
+	STA PPUADDR
+	LDA #$00
+	STA PPUADDR
+
+  LDX #$00
+	LoadPalettesLoop:
+  LDA PaletteData, x
+
+  STA PPUDATA
+  INX
+  CPX #$20
+  BNE LoadPalettesLoop
+
+
   LDA #$39
   STA color_1
   STA current_color
@@ -85,11 +114,11 @@ skip:
   STX $2001
 
 vblankwait:
-  BIT $2002
+  BIT PPUSTATUS
   BPL vblankwait
 
 vblankwait2:
-  BIT $2002
+  BIT PPUSTATUS
   BPL vblankwait2
 
   JMP main
@@ -97,18 +126,10 @@ vblankwait2:
 
 
 .proc main
-  LDX $2002
-  LDX #$3f
-  STX $2006
-  LDX #$00
-  STX $2006
-
-  LDA #$1C
-  STA $2007
+  LDX PPUSTATUS
 
   LDA #%00011110
   STA $2001
-
 forever:
   JMP forever
 .endproc
@@ -121,6 +142,6 @@ forever:
 
 .segment "CHARS"
 
-.res 8192
+.incbin "mario.chr"
 
 .segment "STARTUP"

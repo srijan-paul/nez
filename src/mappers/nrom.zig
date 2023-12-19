@@ -2,6 +2,7 @@ const std = @import("std");
 const Mapper = @import("./mapper.zig").Mapper;
 const Cart = @import("../cart.zig").Cart;
 const CPU = @import("../cpu.zig").CPU;
+const PPU = @import("../ppu/ppu.zig").PPU;
 
 /// The iNES format assigns mapper 0 to the NROM board,
 /// which is the most common board type.
@@ -9,6 +10,7 @@ const CPU = @import("../cpu.zig").CPU;
 pub const NROM = struct {
     const Self = @This();
     cart: *Cart,
+    ppu: *PPU,
     mapper: Mapper,
 
     const prg_ram = .{ .start = 0x6000, .end = 0x7FFF };
@@ -44,23 +46,38 @@ pub const NROM = struct {
         return &self.cart.prg_rom[addr - prg_rom_bank_1.start];
     }
 
+    /// Perform a read issued by the CPU
     fn nromRead(i_mapper: *Mapper, addr: u16) u8 {
         var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
         var ptr = self.resolveAddr(addr);
         return ptr.*;
     }
 
+    /// Perform a write issued by the CPU
     fn nromWrite(i_mapper: *Mapper, addr: u16, value: u8) void {
         var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
         var ptr = self.resolveAddr(addr);
         ptr.* = value;
     }
 
+    /// Read a byte from the cartridge's CHR ROM.
+    fn ppuRead(i_mapper: *Mapper, addr: u16) u8 {
+        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
+        return self.cart.chr_rom[addr];
+    }
+
+    /// Write a byte to PPU memory.
+    fn ppuWrite(i_mapper: *Mapper, addr: u16, value: u8) void {
+        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
+        self.cart.chr_rom[addr] = value;
+    }
+
     /// Create a new mapper that operates on `cart`.
-    pub fn init(cart: *Cart) Self {
+    pub fn init(cart: *Cart, ppu: *PPU) Self {
         return .{
             .cart = cart,
-            .mapper = Mapper.init(nromRead, nromWrite),
+            .ppu = ppu,
+            .mapper = Mapper.init(nromRead, nromWrite, ppuRead, ppuWrite),
         };
     }
 };
