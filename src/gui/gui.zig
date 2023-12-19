@@ -10,7 +10,7 @@ pub const Label = struct {
 };
 
 fn u8toHexString(allocator: std.mem.Allocator, num: u32) ![:0]const u8 {
-    return try fmt.allocPrintZ(allocator, "0x{x}", .{num});
+    return try fmt.allocPrintZ(allocator, "${x}", .{num});
 }
 
 pub const Window = struct {
@@ -78,6 +78,7 @@ pub const Window = struct {
         }, str);
     }
 
+    /// Draw a label with the given text at the given position.
     pub fn drawLabel(
         self: *Self,
         x: i32,
@@ -95,6 +96,7 @@ pub const Window = struct {
         }, text);
     }
 
+    /// Add a label with the given text at the given position.
     pub fn addLabel(
         self: *Self,
         text: [:0]const u8,

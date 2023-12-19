@@ -112,7 +112,6 @@ pub const CPU = struct {
 
     // fetch the next byte to execute.
     fn nextOp(self: *Self) Byte {
-        // std.debug.print("PC: {x}\n", .{self.PC});
         var byte = self.memRead(self.PC);
         self.incPC();
         return byte;
@@ -337,7 +336,6 @@ pub const CPU = struct {
     pub fn exec(self: *Self, instr: *const Instruction) !void {
         var op = instr[0];
         var mode: AddrMode = instr[1];
-        // std.debug.print("executing: {s}, PC = ${x}\n", .{ @tagName(op), self.PC });
         if (op == Op.BRK) {
             std.debug.panic("!", .{});
         }
@@ -368,6 +366,9 @@ pub const CPU = struct {
             Op.BIT => {
                 var byte = self.operand(instr);
                 var result = self.A & byte;
+                if (result != 0) {
+                    std.debug.panic("BIT: {x} & {x} = {x}\n", .{ self.A, byte, result });
+                }
                 self.StatusRegister.Z = result == 0;
                 self.StatusRegister.N = (byte & 0b1000_0000) != 0;
                 self.StatusRegister.V = (byte & 0b0100_0000) != 0;

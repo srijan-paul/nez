@@ -156,7 +156,7 @@ pub const PPU = struct {
         _ppu_open_bus_unused: u5 = 0,
         sprite_overflow: bool = false,
         sprite_zero_hit: bool = false,
-        is_vblank_active: bool = false,
+        in_vblank: bool = false,
     };
 
     /// The internal `t` and `v` registers have
@@ -435,7 +435,7 @@ pub const PPU = struct {
             261 => {
                 if (self.cycle == 1) {
                     // clear the vblank flag.
-                    self.ppu_status.is_vblank_active = false;
+                    self.ppu_status.in_vblank = false;
                     self.is_nmi_pending = false;
                 }
 
@@ -452,7 +452,7 @@ pub const PPU = struct {
             241 => {
                 if (self.cycle == 1) {
                     // set the vblank flag.
-                    self.ppu_status.is_vblank_active = true;
+                    self.ppu_status.in_vblank = true;
                     if (self.ppu_ctrl.generate_nmi) {
                         self.is_nmi_pending = true;
                     }
@@ -513,9 +513,10 @@ pub const PPU = struct {
     /// Read the PPUSTATUS register.
     /// This will reset the address latch, and clear the vblank flag.
     fn readPPUStatus(self: *Self) u8 {
+        var status: u8 = @bitCast(self.ppu_status);
         self.is_first_write = true;
-        self.ppu_status.is_vblank_active = false;
-        return @bitCast(self.ppu_status);
+        self.ppu_status.in_vblank = false;
+        return status;
     }
 
     /// Write a byte of data to the address pointed to by the PPUADDR register.

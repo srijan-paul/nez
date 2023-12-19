@@ -13,7 +13,6 @@ const PaletteView = views.PaletteView;
 const fmt = std.fmt;
 /// TODO: make this a relative path lol.
 const style = "/Users/srijan-paul/personal/zig/zig-out/bin/style_cyber.rgs";
-
 const Allocator = std.mem.Allocator;
 
 /// Render the NES screen to the window.
@@ -66,10 +65,10 @@ pub fn main() !void {
 
     emu.powerOn();
 
+    try registerWin.addLabel("A", 88, 56, 24, 24);
     try registerWin.addLabel("X", 16, 32, 24, 24);
     try registerWin.addLabel("Y", 16, 56, 24, 24);
     try registerWin.addLabel("S", 88, 32, 24, 24);
-    try registerWin.addLabel("A", 88, 56, 24, 24);
     try registerWin.addLabel("PC", 16, 104, 30, 24);
     try registerWin.addLabel("Status", 16, 152, 56, 24);
 
@@ -103,10 +102,18 @@ pub fn main() !void {
         drawNesScreen(emu.ppu, &tex);
         pt_view.draw(emu.ppu, 0);
         pt_view.draw(emu.ppu, 1);
-
         palette_view.draw();
 
         registerWin.draw();
+        try registerWin.drawLabelUint(100, 56, 24, 24, emu.cpu.A);
+        try registerWin.drawLabelUint(32, 32, 24, 24, emu.cpu.X);
+        try registerWin.drawLabelUint(32, 56, 24, 24, emu.cpu.Y);
+        try registerWin.drawLabelUint(100, 32, 24, 24, emu.cpu.S);
+        try registerWin.drawLabelUint(40, 104, 24, 24, emu.cpu.PC);
+
+        var cpu_status: u8 = @bitCast(emu.cpu.StatusRegister);
+        try registerWin.drawLabelUint(60, 152, 24, 24, cpu_status);
+
         rl.ClearBackground(rl.BLACK);
     }
 }

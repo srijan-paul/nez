@@ -13,6 +13,7 @@ pub const UIPositions = struct {
 };
 
 /// The PPU's palette viewer.
+/// This shows all 4 background palettes from $03F00-$03F0F.
 pub const PaletteView = struct {
     const Self = @This();
     ppu: *PPU,
@@ -76,8 +77,7 @@ pub const PatternTableView = struct {
             .mipmaps = 1,
             .format = @intFromEnum(rl.rlPixelFormat.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8),
         };
-        // TODO: why does commenting this out crash?
-        // rl.UnloadImage(image);
+
         return .{
             .allocator = allocator,
             .color_id_buf = color_id_buf,
