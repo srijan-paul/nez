@@ -546,6 +546,10 @@ pub const PPU = struct {
 
     pub fn busWrite(self: *Self, addr: u16, value: u8) void {
         // TODO: mirroring, mapper.
+        if (addr < 0x2000) {
+            return self.mapper.ppuWrite(addr, value);
+        }
+
         self.ppu_ram[addr] = value;
     }
 

@@ -133,7 +133,9 @@ pub const Cart = struct {
         defer file.close();
 
         var buf = [_]u8{0} ** @sizeOf(Header);
+        var total_bytes_read: usize = 0;
         var bytes_read = try file.read(&buf);
+        total_bytes_read += bytes_read;
 
         assert(bytes_read == @sizeOf(Header));
 
@@ -151,6 +153,7 @@ pub const Cart = struct {
             // TODO: actually load the trainer.
             var trainer_buf = [_]u8{0} ** 512;
             bytes_read = try file.read(&trainer_buf);
+            total_bytes_read += bytes_read;
             assert(bytes_read == 512);
         }
 
@@ -177,10 +180,12 @@ pub const Cart = struct {
             bytes_read = try file.read(prg_rom_buf);
         }
 
+        total_bytes_read += bytes_read;
         var chr_rom_size = @as(usize, header.chr_rom_size) * 8 * 1024;
         var chr_rom_buf = try allocator.alloc(u8, chr_rom_size);
 
         bytes_read = try file.read(chr_rom_buf);
+        total_bytes_read += bytes_read;
         assert(bytes_read == chr_rom_size);
 
         // I do not support playchoice inst-rom and prom (yet).

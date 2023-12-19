@@ -69,7 +69,7 @@ pub const NROM = struct {
     /// Write a byte to PPU memory.
     fn ppuWrite(i_mapper: *Mapper, addr: u16, value: u8) void {
         var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
-        self.cart.chr_rom[addr] = value;
+        self.ppu.ppu_ram[addr] = value;
     }
 
     /// Create a new mapper that operates on `cart`.

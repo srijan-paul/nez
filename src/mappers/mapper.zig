@@ -65,6 +65,6 @@ pub const Mapper = struct {
 
     /// Write a byte of data to PPU address space.
     pub fn ppuWrite(self: *Self, addr: u16, value: u8) void {
-        self.PPUWriteFn(self, addr, value);
+        self.ppuWriteFn(self, addr, value);
     }
 };
