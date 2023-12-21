@@ -182,7 +182,7 @@ pub const PPU = struct {
     fn fetchFromPatternTable(self: *Self, addr: u8, is_low_plane: bool) u8 {
         var fine_y: u16 = self.vram_addr.fine_y;
         var pt_number: u16 =
-            if (self.ppu_ctrl.pattern_background) 0 else 1;
+            if (self.ppu_ctrl.pattern_background) 1 else 0;
 
         var pt_addr =
             (pt_number * 0x1000) +
