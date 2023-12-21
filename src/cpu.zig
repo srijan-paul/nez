@@ -335,9 +335,6 @@ pub const CPU = struct {
     pub fn exec(self: *Self, instr: *const Instruction) !void {
         var op = instr[0];
         var mode: AddrMode = instr[1];
-        if (op == Op.BRK) {
-            std.debug.panic("!", .{});
-        }
         switch (op) {
             Op.ADC => self.adc(self.operand(instr)),
 
@@ -365,9 +362,6 @@ pub const CPU = struct {
             Op.BIT => {
                 var byte = self.operand(instr);
                 var result = self.A & byte;
-                if (result != 0) {
-                    std.debug.panic("BIT: {x} & {x} = {x}\n", .{ self.A, byte, result });
-                }
                 self.StatusRegister.Z = result == 0;
                 self.StatusRegister.N = (byte & 0b1000_0000) != 0;
                 self.StatusRegister.V = (byte & 0b0100_0000) != 0;

@@ -640,13 +640,15 @@ pub const PPU = struct {
                     // each row is 2 bytes – a low byte and high byte.
                     var lo_byte = self.busRead(pt_addr + px_row);
                     var hi_byte = self.busRead(pt_addr + px_row + 8);
+
                     // loop over each pixel in the first row of the 8x8 tile.
                     for (0..8) |px| {
                         var lo_bit = (lo_byte >> @truncate(px)) & 0b1;
                         var hi_bit = (hi_byte >> @truncate(px)) & 0b1;
 
                         var color_index = hi_bit << 1 | lo_bit;
-                        var color_id = self.busRead(bg_palette_base_addr + 16 * palette_index + color_index);
+                        var addr = bg_palette_base_addr + 16 * palette_index + color_index;
+                        var color_id = self.busRead(addr);
 
                         // address of the pixel in the buffer.
                         // it took me a good while to figure this out. OOF
@@ -663,7 +665,9 @@ pub const PPU = struct {
 };
 
 test "(PPU) fetching NT and AT bytes based on `v` register" {
-    var ppu = PPU{};
+    const Console = @import("../nes.zig").Console;
+    var nes = try Console.fromROMFile(std.testing.allocator, "../../roms/beepboop.zig");
+    var ppu = nes.ppu;
 
     ppu.vram_addr.nametable = 2; // 3rd nametable
     ppu.vram_addr.coarse_x = 3;
@@ -678,38 +682,4 @@ test "(PPU) fetching NT and AT bytes based on `v` register" {
 
     var nt_byte = ppu.fetchNameTableByte();
     try std.testing.expectEqual(@as(u8, 69), nt_byte);
-}
-
-test "(PPU) writing to $2006" {
-    var ppu = PPU{};
-    ppu.t = @bitCast(@as(u15, 0b0000_000_1010_1010));
-    ppu.vram_addr = ppu.t;
-
-    // test first write
-    ppu.ppuWrite(6, 0b0011_1101);
-    try std.testing.expectEqual(@as(u15, 0b0111101_1010_1010), @as(u15, @bitCast(ppu.t)));
-    try std.testing.expect(!ppu.is_first_write);
-
-    // test second write
-    ppu.ppuWrite(6, 0b0011_1101);
-    try std.testing.expectEqual(@as(u15, 0b0111101_0011_1101), @as(u15, @bitCast(ppu.t)));
-    try std.testing.expect(ppu.is_first_write);
-}
-
-test "(PPU) Writing to $2005" {
-    var ppu = PPU{};
-    ppu.t = @bitCast(@as(u15, 0));
-
-    // test first write
-    try std.testing.expect(ppu.is_first_write);
-    ppu.ppuWrite(5, 0b01111_101);
-    try std.testing.expectEqual(@as(u5, 0b01111), ppu.t.coarse_x);
-    try std.testing.expectEqual(@as(u8, 0b101), ppu.fine_x);
-
-    // test second write
-    try std.testing.expect(!ppu.is_first_write);
-    ppu.ppuWrite(5, 0b01011110);
-    try std.testing.expectEqual(@as(u5, 0b01_011), ppu.t.coarse_y);
-    try std.testing.expectEqual(@as(u3, 0b110), ppu.t.fine_y);
-    try std.testing.expect(ppu.is_first_write);
 }

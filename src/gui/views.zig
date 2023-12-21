@@ -66,7 +66,9 @@ pub const PatternTableView = struct {
     allocator: Allocator,
     color_id_buf: []u8,
     pt_buf: [PPU.pattern_table_size_px * 3]u8 = [_]u8{1} ** (PPU.pattern_table_size_px * 3),
-    texture: rl.Texture2D,
+
+    pt_left_texture: rl.Texture2D,
+    pt_right_texture: rl.Texture2D,
 
     pub fn init(allocator: Allocator) !Self {
         var color_id_buf = try allocator.alloc(u8, PPU.pattern_table_size_px);
@@ -81,12 +83,14 @@ pub const PatternTableView = struct {
         return .{
             .allocator = allocator,
             .color_id_buf = color_id_buf,
-            .texture = rl.LoadTextureFromImage(image),
+            .pt_left_texture = rl.LoadTextureFromImage(image),
+            .pt_right_texture = rl.LoadTextureFromImage(image),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        rl.UnloadTexture(self.texture);
+        rl.UnloadTexture(self.pt_left_texture);
+        rl.UnloadTexture(self.pt_right_texture);
         self.allocator.free(self.color_id_buf);
     }
 
@@ -108,7 +112,6 @@ pub const PatternTableView = struct {
     pub fn draw(self: *Self, ppu: *PPU, pt_index: u8) void {
         // load the 8 bit color IDs from the pattern table.
         ppu.getPatternTableData(self.color_id_buf, pt_index, 0);
-
         // convert the 8 bit color IDs to 24 bit colors.
         for (0..self.color_id_buf.len) |i| {
             var color_id = self.color_id_buf[i];
@@ -119,7 +122,8 @@ pub const PatternTableView = struct {
             self.pt_buf[i * 3 + 2] = color.b;
         }
 
-        rl.UpdateTexture(self.texture, &self.pt_buf);
+        var texture = if (pt_index == 0) self.pt_left_texture else self.pt_right_texture;
+        rl.UpdateTexture(texture, &self.pt_buf);
 
         var xoff: f32 = 4;
         if (pt_index == 1) {
@@ -130,7 +134,7 @@ pub const PatternTableView = struct {
 
         rl.DrawText(pt_text, @intFromFloat(xoff), UIPositions.pattern_table_y, 16, rl.WHITE);
         rl.DrawTexturePro(
-            self.texture,
+            texture,
             srcScale,
             dstScale,
             rl.Vector2{
