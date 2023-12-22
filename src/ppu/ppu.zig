@@ -44,9 +44,9 @@ pub const PPU = struct {
     ppu_status: FlagStatus = .{},
 
     // OAM registers and memory.
-    oam_addr: u8 = 0,
-    oam_data: u8 = 0,
-    oam_dma: u8 = 0,
+    oam_addr: u8 = 0, // $2003
+    oam_data: u8 = 0, // $2004
+    oam_dma: u8 = 0, // $4014
     oam: [256]u8 = [_]u8{0} ** 256,
 
     // We want the PPU to start on the pre-render scanline.
@@ -590,7 +590,7 @@ pub const PPU = struct {
         self.ppu_ram[addr] = value;
     }
 
-    pub fn busRead(self: *Self, addr: u16) u8 {
+    fn busRead(self: *Self, addr: u16) u8 {
         if (addr < 0x2000) {
             return self.mapper.ppuRead(addr);
         }
@@ -598,10 +598,31 @@ pub const PPU = struct {
         return self.ppu_ram[addr];
     }
 
+    /// Perform a DMA transfer of 256 bytes from CPU memory to OAM memory.
+    /// `cpuAddr`: Address in CPU memory to start reading from.
+    /// (This function should be called when the CPU writes to $4014).
+    fn writeOAMDMA(self: *Self, cpuAddr: u16) void {
+        for (0..256) |_| {
+            self.oam[self.oam_addr] = self.busRead(cpuAddr);
+            cpuAddr = @addWithOverflow(cpuAddr, 1)[0];
+            self.oam_addr = @addWithOverflow(self.oam_addr, 1)[0];
+        }
+    }
+
+    /// Write a byte of data to the OAMDATA register.
+    /// This will also increment the value in OAMADDR register.
+    fn writeOAMDATA(self: *Self, value: u8) void {
+        self.oam[self.oam_addr] = value;
+        self.oam_addr = @addWithOverflow(self.oam_addr, 1)[0];
+    }
+
     /// Write a byte of data to the PPU registers.
     /// The address must be in range [0, 7].
-    pub fn ppuWrite(self: *Self, addr: u16, val: u8) void {
-        switch (addr) {
+    pub fn writeRegister(self: *Self, addr: u16, val: u8) void {
+        std.debug.assert(addr >= 0x2000 and addr < 0x4000);
+        var register = addr & 0b111;
+
+        switch (register) {
             0 => {
                 self.ppu_ctrl = @bitCast(val);
                 // Writing to PPUCTRL also sets the nametable number in the `t` register.
@@ -609,8 +630,8 @@ pub const PPU = struct {
             },
             1 => self.ppu_mask = @bitCast(val),
             2 => self.ppu_status = @bitCast(val),
-            // TODO: OAMADDR, OAMDATA
-            3...4 => unreachable,
+            3 => self.oam_addr = val,
+            4 => self.writeOAMDATA(val),
             5 => self.writePPUScroll(val),
             6 => self.setPPUAddr(val),
             7 => self.writePPUData(val),
@@ -620,16 +641,18 @@ pub const PPU = struct {
 
     /// Read a byte of data from one of the PPU registers.
     /// The address must be in range [0, 7].
-    pub fn ppuRead(self: *Self, addr: u16) u8 {
-        switch (addr) {
-            0 => return @bitCast(self.ppu_ctrl),
-            1 => return @bitCast(self.ppu_mask),
-            2 => return self.readPPUStatus(),
-            // TODO: OAMADDR, OAMDATA, PPUSCROLL
-            3...6 => unreachable,
-            7 => return self.readFromPPUAddr(),
-            else => unreachable,
-        }
+    pub fn readRegister(self: *Self, addr: u16) u8 {
+        std.debug.assert(addr >= 0x2000 and addr < 0x4000);
+        var register = addr & 0b111;
+
+        // TODO: emulate the PPU's memory access timing delay.
+        return switch (register) {
+            2 => self.readPPUStatus(),
+            4 => self.oam[self.oam_addr],
+            7 => self.readFromPPUAddr(),
+            // reading from any other register is undefined behavior
+            else => 0,
+        };
     }
 
     /// Load a 4-item buffer with colors from the specified PPU palette.

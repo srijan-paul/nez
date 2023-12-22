@@ -73,40 +73,28 @@ pub const NESBus = struct {
     // holds a reference to the CPU's 0x800 bytes of RAM.
     ram: [w_ram_size]u8 = .{0} ** w_ram_size,
 
-    const MMIO_addr_start: u16 = 0x2000;
-    const MMIO_addr_end: u16 = 0x4000;
-
     fn busRead(i_bus: *Bus, addr: u16) u8 {
         var self = @fieldParentPtr(Self, "bus", i_bus);
-        if (addr < 0x2000) {
-            return self.ram[addr % w_ram_size];
-        }
 
-        // addresses between 0x2000 and 0x4000 are MMIO for the PPU
-        if (addr < MMIO_addr_end) {
-            // TODO: simulate open bus behavior.
-            var mmio_addr = (addr - MMIO_addr_start) % 8;
-            return self.ppu.ppuRead(mmio_addr);
-        }
-
-        return self.mapper.read(addr);
+        return switch (addr) {
+            0...0x1FFF => self.ram[addr % w_ram_size],
+            0x2000...0x3FFF => self.ppu.readRegister(addr),
+            0x4000...0x4017 => 0, // TODO
+            0x4018...0x401F => 0, // TODO
+            else => self.mapper.read(addr),
+        };
     }
 
     fn busWrite(i_bus: *Bus, addr: u16, val: u8) void {
         var self = @fieldParentPtr(Self, "bus", i_bus);
-        if (addr < 0x2000) {
-            self.ram[addr % w_ram_size] = val;
-            return;
-        }
 
-        // address between 0x2000 and 0x4000 are MMIO for the PPU.
-        if (addr < MMIO_addr_end) {
-            var mmio_addr = (addr - MMIO_addr_start) % 8;
-            self.ppu.ppuWrite(mmio_addr, val);
-            return;
+        switch (addr) {
+            0...0x1FFF => self.ram[addr % w_ram_size] = val,
+            0x2000...0x3FFF => self.ppu.writeRegister(addr, val),
+            0x4000...0x4017 => {}, // TODO
+            0x4018...0x401F => {}, // TODO
+            else => self.mapper.write(addr, val),
         }
-
-        self.mapper.write(addr, val);
     }
 
     fn createMapper(allocator: Allocator, cart: *Cart, ppu: *PPU) !*Mapper {
