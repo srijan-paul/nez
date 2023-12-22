@@ -28,6 +28,12 @@ pub const PPU = struct {
     /// and the CPU needs to handle it.
     is_nmi_pending: bool = false,
 
+    /// In reality, the PPU RAM is only 2kB in size.
+    /// $3000 - $EFFF is a mirror of $2000 - $2EFF.
+    /// $0000 - $1FFF is mapped to the CHR ROM.
+    /// Therefore, all indices below $2000 in this buffer are unused.
+    /// The only reason I'm allocating 64kB is because it's easier to
+    /// directly use PPU memory addresses as indices into this buffer.
     ppu_ram: [0x10000]u8 = [_]u8{0} ** 0x10000,
 
     ppu_ctrl: FlagCTRL = .{},
@@ -37,15 +43,27 @@ pub const PPU = struct {
     // read-only
     ppu_status: FlagStatus = .{},
 
-    // we want to start on the pre-render scanline.
+    // OAM registers and memory.
+    oam_addr: u8 = 0,
+    oam_data: u8 = 0,
+    oam_dma: u8 = 0,
+    oam: [256]u8 = [_]u8{0} ** 256,
+
+    // We want the PPU to start on the pre-render scanline.
+    // So the scanline and dot are set to 260, and 240 respectively.
+    // When the first tick() is called, the scanline and dot will be
+    // incremented to 261 and 0 respectively.
     cycle: u16 = 340,
     current_scanline: u16 = 260,
 
     /// Current position inside the frame buffer.
     /// This depends on the current scanline and cycle.
     frame_buffer_pos: usize = 0,
-    /// A 256x240 1D array of colors IDs that is filled in dot-by-dot by the CPU.
+
+    /// A 256x240 1D array of color IDs that is filled in dot-by-dot by the CPU.
+    /// A color ID is an index into the 64-color palette of the NES.
     frame_buffer: [NPixels]u8 = .{0} ** NPixels,
+
     /// The actual buffer that should be drawn to the screen every frame by raylib.
     /// Note that this is stored in R8G8B8 format (24 bits-per-pixel).
     /// I store it like this so its easier to pass it to raylib for rendering
@@ -54,33 +72,40 @@ pub const PPU = struct {
 
     palette_attr_next_tile: u8 = 0,
 
+    /// This corresponds to the `v` register of the PPU.
     /// Stores the current VRAM address when loading tile and sprite data.
     vram_addr: VRamAddr = .{},
 
     /// The "t" register is the "source of truth" for the base vram address.
+    /// It gets written to when the programmer sets PPUADDR.
     t: VRamAddr = .{},
 
-    /// the write toggle bit.
+    /// The write toggle bit.
     /// This is shared by PPU registers at $2005 and $2006
+    /// NOTE: Because this variable is called "is_first_write", its value
+    /// will be opposite to NES PPU's toggle bit.
+    /// In a real PPU, this bit is 0 when its doing the first write,
+    /// and becomes 1 when its time to do the second write.
+    /// In my case, its `true` when its time to do the first write,
+    /// and becomes `false` when its time to do the second write.
     is_first_write: bool = true,
 
     /// In the original 2A03 chip, this was a 3-bit register.
     /// But mine is a u8 just so a modern CPU can crunch this number quick.
     fine_x: u8 = 0,
 
-    // Every 8 cycles, the PPU fetches a byte from the pattern table,
-    // and places it into an internal latch. This byte is meant to represent that latch.
     // In the following cycle, the PPU fetches the palette attribute byte for this nametable byte.
     // And then, it fetches two bytes,
     // each representing a sliver of a pattern table plane for the tile to be rendered.
     nametable_byte: u8 = 0,
     attr_table_byte: u8 = 0,
 
-    /// Internal registers that store the low and high bit planes
-    /// of the pattern table data for the next tile to be drawn.
-    /// When it is time to draw these tiles, the data is loaded into
-    /// the shift registers defined below.
-    /// These internal registers are filled with data on specific cycles of
+    /// Every 8 cycles, the PPU makes fetches the pattern table data for the next tile,
+    /// and stores the data into two internal latches.
+    /// These latches are then used to feed data into the shift registers, that
+    /// are shifted once every dot.
+    ///
+    /// These "latches" are filled with data on specific cycles of
     /// visible scanlines (and the pre-render scanline) as described here:
     /// https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
     pattern_lo: u8 = 0,
@@ -94,6 +119,8 @@ pub const PPU = struct {
     at_data_lo: ShiftReg8 = 0,
     at_data_hi: ShiftReg8 = 0,
 
+    /// To access the CHR-ROM (and other possibly data on the cartridge),
+    /// The PPU bus is connected to a Mapper on the cartridge.
     mapper: *Mapper,
 
     const Self = @This();
@@ -103,7 +130,9 @@ pub const PPU = struct {
     /// On every visible dot, the current pixel to render is fetched from the lower 8 bits (curr_tile).
     /// When the current pixel is fetched, the data in this register is shifted by 1 bit.
     pub const ShiftReg16 = packed struct {
+        /// A sliver of pattern table bits for the current tile being rendered.
         curr_tile: u8 = 0,
+        /// A sliver of pattern table bits The next tile to be rendered.
         next_tile: u8 = 1,
 
         /// Shift the contents of the register one bit to the right, and
@@ -179,7 +208,8 @@ pub const PPU = struct {
     }
 
     /// Fetch a byte of data from one of the two pattern tables.
-    fn fetchFromPatternTable(self: *Self, addr: u8, is_low_plane: bool) u8 {
+    /// The pattern table is chosen from the `pattern_background` bit of the PPUCTRL register.
+    fn fetchFromPatternTable(self: *Self, addr: u16, is_low_plane: bool) u8 {
         var fine_y: u16 = self.vram_addr.fine_y;
         var pt_number: u16 =
             if (self.ppu_ctrl.pattern_background) 1 else 0;
@@ -195,7 +225,7 @@ pub const PPU = struct {
             self.busRead(pt_addr + 8);
     }
 
-    /// Fetch the next byte from the name table
+    /// Fetch the next byte from the name table.
     fn fetchNameTableByte(self: *Self) u8 {
         var coarse_y: u16 = self.vram_addr.coarse_y;
         var coarse_x: u16 = self.vram_addr.coarse_x;
@@ -349,7 +379,8 @@ pub const PPU = struct {
 
     /// Execute one tick in a visible scanline.
     /// This should only be called for cycles 1 to 255 (inclusive)
-    /// in scalines 0 to 240 (inclusive). This should *not* be called for the pre-render scanline.
+    /// in scanlines 0 to 240 (inclusive).
+    /// This should *not* be called for the pre-render scanline.
     fn visibleDot(self: *Self, subcycle: u16) void {
         // On every visible dot of a visible scanline, render a pixel.
         self.renderPixel();
@@ -360,6 +391,7 @@ pub const PPU = struct {
     }
 
     /// Copy the vertical bits from the `t` register into the `v` register.
+    /// This is done on the pre-render line (scanline 261) during cycles 280 to 304.
     fn resetVert(self: *Self) void {
         self.vram_addr.coarse_y = self.t.coarse_y;
         self.vram_addr.fine_y = self.t.fine_y;
@@ -394,6 +426,11 @@ pub const PPU = struct {
 
         if (is_prerender_line and self.cycle >= 280 and self.cycle <= 304) {
             self.resetVert();
+        }
+
+        // OAMADDR is zeroed out on dots 257-320 of pre-render and visible scanlines.
+        if (self.cycle >= 257 and self.cycle <= 320) {
+            self.oam_addr = 0;
         }
 
         var subcycle = self.cycle % 8;
