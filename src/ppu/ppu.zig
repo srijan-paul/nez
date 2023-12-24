@@ -268,9 +268,12 @@ pub const PPU = struct {
         if (fine_y == std.math.maxInt(@TypeOf(self.vram_addr.fine_y))) {
             // reset fine-y to 0, now that we're on the first pixel of the next tile.
             fine_y = 0;
-            if (coarse_y == 31) {
+            if (coarse_y == 29) {
                 // If we were on the last tile of current scanline,
                 // wrap back to first tile of next scanline.
+                coarse_y = 0;
+            } else if (coarse_y == 31) {
+                // I don't fully understand this part yet.
                 coarse_y = 0;
                 // goto next vertical nametable. (0 -> 2, 1 -> 3)
                 self.vram_addr.nametable ^= 0b10;
