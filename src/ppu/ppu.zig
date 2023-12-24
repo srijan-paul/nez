@@ -263,13 +263,17 @@ pub const PPU = struct {
     /// increment the fine and coarse Y based on the current
     /// clock cycle.
     fn incrY(self: *Self) void {
-        // TODO: nametable switching.
         var fine_y: u8 = self.vram_addr.fine_y;
         var coarse_y: u8 = self.vram_addr.coarse_y;
         if (fine_y == std.math.maxInt(@TypeOf(self.vram_addr.fine_y))) {
+            // reset fine-y to 0, now that we're on the first pixel of the next tile.
             fine_y = 0;
             if (coarse_y == 31) {
+                // If we were on the last tile of current scanline,
+                // wrap back to first tile of next scanline.
                 coarse_y = 0;
+                // goto next vertical nametable. (0 -> 2, 1 -> 3)
+                self.vram_addr.nametable ^= 0b10;
             } else {
                 coarse_y += 1;
             }
@@ -281,15 +285,17 @@ pub const PPU = struct {
         self.vram_addr.coarse_y = @truncate(coarse_y);
     }
 
-    /// Increment the coarse X based on the current
-    /// clock cycle.
+    /// Increment the coarse X based on the current clock cycle.
+    /// Once we're past the last tile, we wrap to the next tile of the
+    /// next nametable.
     fn incrCoarseX(self: *Self) void {
-        // TODO: implement nametable switching.
         var coarse_x: u8 = self.vram_addr.coarse_x;
         if (coarse_x < std.math.maxInt(u5)) {
             coarse_x += 1;
         } else {
             coarse_x = 0;
+            // Goto next horizontal nametable. (0 -> 1, 2 -> 3)
+            self.vram_addr.nametable ^= 0b01;
         }
         self.vram_addr.coarse_x = @truncate(coarse_x);
     }
