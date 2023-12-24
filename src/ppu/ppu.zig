@@ -101,11 +101,11 @@ pub const PPU = struct {
     attr_table_byte: u8 = 0,
 
     /// Every 8 cycles, the PPU makes fetches the pattern table data for the next tile,
-    /// and stores the data into two internal latches.
-    /// These latches are then used to feed data into the shift registers, that
+    /// and stores the data into two internal latches (one for high bit plane, and one for low).
+    /// These bytes in these latches are then loaded into shift registers that
     /// are shifted once every dot.
     ///
-    /// These "latches" are filled with data on specific cycles of
+    /// The "latches" are filled with data on specific cycles of
     /// visible scanlines (and the pre-render scanline) as described here:
     /// https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
     pattern_lo: u8 = 0,
@@ -127,7 +127,6 @@ pub const PPU = struct {
 
     /// 16-bit shift register to hold pattern-table data.
     /// Every 8 cycles, the data for the next tile is loaded into the upper 8 bits (next_tile).
-    /// On every visible dot, the current pixel to render is fetched from the lower 8 bits (curr_tile).
     /// When the current pixel is fetched, the data in this register is shifted by 1 bit.
     pub const ShiftReg16 = packed struct {
         /// A sliver of pattern table bits for the current tile being rendered.
@@ -599,11 +598,20 @@ pub const PPU = struct {
     }
 
     /// Perform a DMA transfer of 256 bytes from CPU memory to OAM memory.
-    /// `cpuAddr`: Address in CPU memory to start reading from.
+    /// `oamDMA`: The byte that was written to OAMDMA register.
     /// (This function should be called when the CPU writes to $4014).
-    fn writeOAMDMA(self: *Self, cpuAddr: u16) void {
-        for (0..256) |_| {
-            self.oam[self.oam_addr] = self.busRead(cpuAddr);
+    fn writeOAMDMA(self: *Self, oamDMA: u16) void {
+        // When writing to OAM memory, the programmer will write the
+        // high byte of the CPU address to OAMADDR, and then write the
+        // low byte of the CPU address to OAMDMA.
+        // eg: This program transfers 256 bytes from $0200 to OAM.
+        // LDA #$00
+        // STA OAMADDR
+        // LDA #$02
+        // STA OAMDMA
+        var cpuAddr = (self.oam_addr << 8) | oamDMA;
+        for (0..256) |i| {
+            self.oam[i] = self.busRead(cpuAddr);
             cpuAddr = @addWithOverflow(cpuAddr, 1)[0];
             self.oam_addr = @addWithOverflow(self.oam_addr, 1)[0];
         }
@@ -623,18 +631,18 @@ pub const PPU = struct {
         var register = addr & 0b111;
 
         switch (register) {
-            0 => {
+            0 => { // PPUCTRL
                 self.ppu_ctrl = @bitCast(val);
                 // Writing to PPUCTRL also sets the nametable number in the `t` register.
                 self.t.nametable = self.ppu_ctrl.nametable_number;
             },
-            1 => self.ppu_mask = @bitCast(val),
-            2 => self.ppu_status = @bitCast(val),
-            3 => self.oam_addr = val,
-            4 => self.writeOAMDATA(val),
-            5 => self.writePPUScroll(val),
-            6 => self.setPPUAddr(val),
-            7 => self.writePPUData(val),
+            1 => self.ppu_mask = @bitCast(val), // PPUMASK
+            2 => self.ppu_status = @bitCast(val), // PPUSTATUS
+            3 => self.oam_addr = val, // OAMADDR
+            4 => self.writeOAMDATA(val), // OAMDATA
+            5 => self.writePPUScroll(val), // PPUSCROLL
+            6 => self.setPPUAddr(val), // PPUADDR
+            7 => self.writePPUData(val), // PPUDATA
             else => unreachable,
         }
     }
