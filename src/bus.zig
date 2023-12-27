@@ -88,6 +88,16 @@ pub const NESBus = struct {
     fn busWrite(i_bus: *Bus, addr: u16, val: u8) void {
         var self = @fieldParentPtr(Self, "bus", i_bus);
 
+        if (false) {
+            if (addr == 0x2007) {
+                var addr_latch: u16 = @as(u15, @bitCast(self.ppu.t));
+                std.debug.print("(PPUDATA) PPU[{x}] <- {x}\n", .{ addr_latch, val });
+            } else if (addr == 0x2006) {
+                std.debug.print("w: {x}\n", .{@as(u8, if (self.ppu.is_first_write) 0 else 1)});
+                std.debug.print("(PPUADDR) _ <- {x}\n", .{val});
+            }
+        }
+
         switch (addr) {
             0...0x1FFF => self.ram[addr % w_ram_size] = val,
             0x2000...0x3FFF => self.ppu.writeRegister(addr, val),

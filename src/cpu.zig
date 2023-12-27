@@ -331,10 +331,29 @@ pub const CPU = struct {
         self.A = @truncate(sum);
     }
 
+    fn dumpRegisters(self: *Self) ![]const u8 {
+        return std.fmt.allocPrint(
+            self.allocator,
+            "A: {x}\nX: {x}\nY: {x}\n",
+            .{ self.A, self.X, self.Y },
+        );
+    }
+
     /// Execute a single instruction.
     pub fn exec(self: *Self, instr: *const Instruction) !void {
         var op = instr[0];
         var mode: AddrMode = instr[1];
+
+        if (false) {
+            std.debug.print(
+                "${x}: executing instruction: ({s})\n",
+                .{ self.PC - 1, @tagName(op) },
+            );
+            var regs = try self.dumpRegisters();
+            defer self.allocator.free(regs);
+            std.debug.print("{s}\n", .{regs});
+        }
+
         switch (op) {
             Op.ADC => self.adc(self.operand(instr)),
 
@@ -707,9 +726,7 @@ pub const CPU = struct {
         }
 
         self.currentInstr = self.nextInstruction();
-
-        // subtract one because of CPU cycle
-        // used to decode the instruction.
+        // -1 because of CPU cycle used to decode the instruction.
         self.cycles_to_wait = self.currentInstr[2] - 1;
     }
 

@@ -60,7 +60,7 @@ pub fn main() !void {
 
     var registerWin = gui.Window.new(allocator, "CPU State", 0, 0, 160, 240);
 
-    var emu = try NESConsole.fromROMFile(allocator, "./roms/color_test.nes");
+    var emu = try NESConsole.fromROMFile(allocator, "./roms/dk.nes");
     defer emu.deinit();
 
     emu.powerOn();
@@ -98,6 +98,9 @@ pub fn main() !void {
         defer rl.EndDrawing();
 
         _ = try emu.update(dt);
+        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_SPACE)) {
+            // try emu.debugTick();
+        }
 
         drawNesScreen(emu.ppu, &tex);
         pt_view.draw(emu.ppu, 0);
@@ -109,7 +112,8 @@ pub fn main() !void {
         try registerWin.drawLabelUint(32, 32, 24, 24, emu.cpu.X);
         try registerWin.drawLabelUint(32, 56, 24, 24, emu.cpu.Y);
         try registerWin.drawLabelUint(100, 32, 24, 24, emu.cpu.S);
-        try registerWin.drawLabelUint(40, 104, 24, 24, emu.cpu.PC);
+        // PC points to the next instruction to be executed. (TODO: dont do this)
+        try registerWin.drawLabelUint(40, 104, 40, 24, emu.cpu.PC - 1);
 
         var cpu_status: u8 = @bitCast(emu.cpu.StatusRegister);
         try registerWin.drawLabelUint(60, 152, 24, 24, cpu_status);

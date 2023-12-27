@@ -47,7 +47,14 @@ pub const PPU = struct {
     oam_addr: u8 = 0, // $2003
     oam_data: u8 = 0, // $2004
     oam_dma: u8 = 0, // $4014
+    // Stores the sprite data for 64 sprites.
     oam: [256]u8 = [_]u8{0} ** 256,
+
+    /// Secondary OAM stores the sprites for the current scanline (for upto 8 sprites).
+    /// Each sprite uses 4 bytes (Y-pos, PT tile-index, attributes, X-pos).
+    secondary_oam: [8][4]u8 = [_][4]u8{.{ 0, 0, 0, 0 }} ** 8,
+
+    sprite_shifters: [8]ShiftReg8 = .{0} ** 8,
 
     // We want the PPU to start on the pre-render scanline.
     // So the scanline and dot are set to 260, and 240 respectively.
@@ -413,6 +420,19 @@ pub const PPU = struct {
             (self.vram_addr.nametable & 0b10) | (self.t.nametable & 0b01);
     }
 
+    /// Sprite evaluation that occurrs on every dot of a visible scanline.
+    fn spriteEval(self: *Self) void {
+        switch (self.cycle) {
+            1 => {
+                for (0..8) |sprite_index| {
+                    for (0..4) |attr| {
+                        self.secondary_oam[sprite_index][attr] = 0xFF;
+                    }
+                }
+            },
+        }
+    }
+
     /// Execute one tick of a visible scanline (0 to 239 inclusive)
     fn visibleScanline(self: *Self) void {
         // On the last cycle of the last visible scanline, reset the frame buffer position
@@ -590,7 +610,7 @@ pub const PPU = struct {
     }
 
     pub fn busWrite(self: *Self, addr: u16, value: u8) void {
-        // TODO: mirroring, mapper.
+        // TODO: mirroring.
         if (addr < 0x2000) {
             return self.mapper.ppuWrite(addr, value);
         }
@@ -643,7 +663,7 @@ pub const PPU = struct {
             0 => { // PPUCTRL
                 self.ppu_ctrl = @bitCast(val);
                 // Writing to PPUCTRL also sets the nametable number in the `t` register.
-                self.t.nametable = self.ppu_ctrl.nametable_number;
+                // self.t.nametable = self.ppu_ctrl.nametable_number;
             },
             1 => self.ppu_mask = @bitCast(val), // PPUMASK
             2 => self.ppu_status = @bitCast(val), // PPUSTATUS
@@ -654,6 +674,9 @@ pub const PPU = struct {
             7 => self.writePPUData(val), // PPUDATA
             else => unreachable,
         }
+
+        // std.debug.print("PPU register: ${x} <- ${x}\n", .{ register, val });
+        // std.debug.print("t   register: ${x}\n", .{@as(u15, @bitCast(self.t))});
     }
 
     /// Read a byte of data from one of the PPU registers.

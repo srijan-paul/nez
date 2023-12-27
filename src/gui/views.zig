@@ -49,7 +49,7 @@ pub const PaletteView = struct {
         var xoff: i32 = 4;
         var yoff: i32 = 4;
 
-        rl.DrawText("Palettes", x + xoff, y + yoff, 16, rl.WHITE);
+        rl.DrawText("Palettes (BG)", x + xoff, y + yoff, 16, rl.WHITE);
 
         yoff += 20;
         for (0..4) |i| {
