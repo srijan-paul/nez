@@ -177,16 +177,14 @@ pub const PPU = struct {
 
     /// Flags for the PPUMask register.
     pub const FlagMask = packed struct {
-        enhance_blue: bool = false,
-        enhance_green: bool = false,
-        enhance_red: bool = false,
-
-        foreground_enabled: bool = false,
-        background_enabled: bool = false,
-
-        left_fg: bool = false,
+        is_grayscale: bool = false,
         left_bg: bool = false,
-        grayscale_enabled: bool = false,
+        left_fg: bool = false,
+        draw_bg: bool = false,
+        draw_sprites: bool = false,
+        enhance_red: bool = false,
+        enhance_green: bool = false,
+        enhance_blue: bool = false,
     };
 
     // flags for the PPUStatus register.
@@ -445,14 +443,23 @@ pub const PPU = struct {
 
         var is_prerender_line = self.current_scanline == 261;
 
+        var draw_bg = self.ppu_mask.draw_bg;
+
         // The 0th cycle is idle, nothing happens apart from regular rendering.
         if (self.cycle == 0) {
-            self.renderPixel();
-            self.shiftBgRegsiters();
+            // TODO: handle bg and fg separately.
+            if (draw_bg) {
+                self.renderPixel();
+                self.shiftBgRegsiters();
+            }
             return;
         }
 
-        if (is_prerender_line and self.cycle >= 280 and self.cycle <= 304) {
+        if (is_prerender_line and
+            self.cycle >= 280 and
+            self.cycle <= 304 and
+            draw_bg)
+        {
             self.resetVert();
         }
 
@@ -465,26 +472,42 @@ pub const PPU = struct {
         switch (self.cycle) {
             // 1 -> 255 are the visible dots.
             // On these dots, one pixel is rendered to the screen.
-            1...255 => self.visibleDot(subcycle),
+            1...255 => {
+                if (draw_bg) {
+                    // TODO: check draw_sprites
+                    self.visibleDot(subcycle);
+                }
+            },
 
             256 => {
-                self.incrY();
-                self.incrCoarseX();
+                // TODO: check draw_sprites
+                if (draw_bg) {
+                    self.incrY();
+                    self.incrCoarseX();
+                }
             },
 
             // Once we're done drawing the last pixel of a scanline,
             // reset the horizontal tile position in the `v` register.
-            257 => self.resetHorz(),
+            257 => {
+                if (draw_bg) {
+                    self.resetHorz();
+                }
+            },
 
-            258, 260, 266, 305 => self.nametable_byte = self.fetchNameTableByte(),
+            258, 260, 266, 305 => if (draw_bg) {
+                self.nametable_byte = self.fetchNameTableByte();
+            },
 
             // In clocks 321...336, the PPU fetches tile data for the next scanline.
-            321...336 => {
+            321...336 => if (draw_bg) {
                 self.shiftBgRegsiters();
                 self.fetchBgTile(subcycle);
             },
             // Unused name table fetches
-            338, 340 => self.nametable_byte = self.fetchNameTableByte(),
+            338, 340 => if (draw_bg) {
+                self.nametable_byte = self.fetchNameTableByte();
+            },
             // garbage nametable byte fetches.
             else => {},
         }
@@ -595,18 +618,22 @@ pub const PPU = struct {
     /// This will also auto-increment the PPUADDR register by an amount that depends
     /// on the value of a control bit in the PPUCTRL register.
     fn writePPUDATA(self: *Self, value: u8) void {
-        var t: u15 = @bitCast(self.t);
-        self.busWrite(t, value);
+        var addr: u15 = @bitCast(self.vram_addr);
+        self.busWrite(addr, value);
         var addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
-        t = @addWithOverflow(t, addr_increment)[0];
-        self.t = @bitCast(t);
+        addr = @addWithOverflow(addr, addr_increment)[0];
+        self.vram_addr = @bitCast(addr);
     }
 
     /// Read a byte of data from the address pointed to by the PPUADDR register.
     /// Reading from PPUDATA register reads from PPUADDR.
     fn readPPUDATA(self: *Self) u8 {
-        var t: u15 = @bitCast(self.t);
-        return self.busRead(t);
+        var addr: u15 = @bitCast(self.vram_addr);
+        var data = self.busRead(addr);
+        var addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
+        addr = @addWithOverflow(addr, addr_increment)[0];
+        self.vram_addr = @bitCast(addr);
+        return data;
     }
 
     pub fn busWrite(self: *Self, addr: u16, value: u8) void {
@@ -663,7 +690,7 @@ pub const PPU = struct {
             0 => { // PPUCTRL
                 self.ppu_ctrl = @bitCast(val);
                 // Writing to PPUCTRL also sets the nametable number in the `t` register.
-                self.vram_addr.nametable = self.ppu_ctrl.nametable_number;
+                self.t.nametable = self.ppu_ctrl.nametable_number;
             },
             1 => self.ppu_mask = @bitCast(val), // PPUMASK
             2 => self.ppu_status = @bitCast(val), // PPUSTATUS
@@ -676,7 +703,7 @@ pub const PPU = struct {
         }
 
         // std.debug.print("PPU register: ${x} <- ${x}\n", .{ register, val });
-        // std.debug.print("t   register: ${x}\n", .{@as(u15, @bitCast(self.t))});
+        // std.debug.print("v   register: ${x}\n", .{@as(u15, @bitCast(self.vram_addr))});
     }
 
     /// Read a byte of data from one of the PPU registers.
@@ -693,6 +720,37 @@ pub const PPU = struct {
             // reading from any other register is undefined behavior
             else => 0,
         };
+    }
+
+    fn concat(allocator: std.mem.Allocator, one: []const u8, two: []const u8) ![]u8 {
+        return std.fmt.allocPrint(allocator, "{s}{s}", .{ one, two });
+    }
+
+    /// Dump the contents of the name table to a buffer.
+    pub fn dumpNameTable(self: *Self, allocator: std.mem.Allocator) ![]u8 {
+        var buf = try allocator.alloc(u8, 0);
+
+        for (nametable_base_addr..nametable_base_addr + nametable_size) |i| {
+            var byte = self.busRead(@truncate(i));
+
+            if (i % 32 == 0) {
+                var newBuf = try std.fmt.allocPrint(allocator, "\n[${x}]: ", .{i});
+                defer allocator.free(newBuf);
+
+                var tmp = try concat(allocator, buf, newBuf);
+                allocator.free(buf);
+                buf = tmp;
+            }
+
+            var newBuf = try std.fmt.allocPrint(allocator, "{x} ", .{byte});
+            defer allocator.free(newBuf);
+
+            var tmp = try concat(allocator, buf, newBuf);
+            allocator.free(buf);
+            buf = tmp;
+        }
+
+        return buf;
     }
 
     /// Load a 4-item buffer with colors from the specified PPU palette.

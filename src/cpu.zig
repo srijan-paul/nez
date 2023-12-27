@@ -334,7 +334,7 @@ pub const CPU = struct {
     fn dumpRegisters(self: *Self) ![]const u8 {
         return std.fmt.allocPrint(
             self.allocator,
-            "A: {x}\nX: {x}\nY: {x}\n",
+            "(A: {x} | X: {x} | Y: {x})",
             .{ self.A, self.X, self.Y },
         );
     }
@@ -346,7 +346,7 @@ pub const CPU = struct {
 
         if (false) {
             std.debug.print(
-                "${x}: executing instruction: ({s})\n",
+                "${x}: {s}; ",
                 .{ self.PC - 1, @tagName(op) },
             );
             var regs = try self.dumpRegisters();
@@ -723,6 +723,7 @@ pub const CPU = struct {
             // store current PC, store current status flags,
             // point the PC to the NMI handler addr, etc.
             self.triggerNMI();
+            std.debug.print("NMI triggered\n", .{});
         }
 
         self.currentInstr = self.nextInstruction();

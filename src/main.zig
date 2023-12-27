@@ -99,6 +99,9 @@ pub fn main() !void {
 
         _ = try emu.update(dt);
         if (rl.IsKeyPressed(rl.KeyboardKey.KEY_SPACE)) {
+            var nameTable = try emu.ppu.dumpNameTable(allocator);
+            defer allocator.free(nameTable);
+            std.debug.print("{s}\n", .{nameTable});
             // try emu.debugTick();
         }
 
