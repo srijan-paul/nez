@@ -557,7 +557,7 @@ pub const PPU = struct {
     }
 
     /// Write to the PPUADDR register ($2006 of CPU address space).
-    pub fn setPPUAddr(self: *Self, value: u8) void {
+    pub fn writePPUADDR(self: *Self, value: u8) void {
         if (self.is_first_write) {
             // 1. Get the lower 6 bits of the operand byte, and
             // 2. Set the bits 9-14 of the t register.
@@ -594,7 +594,7 @@ pub const PPU = struct {
     /// Write a byte of data to the address pointed to by the PPUADDR register.
     /// This will also auto-increment the PPUADDR register by an amount that depends
     /// on the value of a control bit in the PPUCTRL register.
-    fn writePPUData(self: *Self, value: u8) void {
+    fn writePPUDATA(self: *Self, value: u8) void {
         var t: u15 = @bitCast(self.t);
         self.busWrite(t, value);
         var addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
@@ -604,7 +604,7 @@ pub const PPU = struct {
 
     /// Read a byte of data from the address pointed to by the PPUADDR register.
     /// Reading from PPUDATA register reads from PPUADDR.
-    fn readFromPPUAddr(self: *Self) u8 {
+    fn readPPUDATA(self: *Self) u8 {
         var t: u15 = @bitCast(self.t);
         return self.busRead(t);
     }
@@ -663,15 +663,15 @@ pub const PPU = struct {
             0 => { // PPUCTRL
                 self.ppu_ctrl = @bitCast(val);
                 // Writing to PPUCTRL also sets the nametable number in the `t` register.
-                // self.t.nametable = self.ppu_ctrl.nametable_number;
+                self.vram_addr.nametable = self.ppu_ctrl.nametable_number;
             },
             1 => self.ppu_mask = @bitCast(val), // PPUMASK
             2 => self.ppu_status = @bitCast(val), // PPUSTATUS
             3 => self.oam_addr = val, // OAMADDR
             4 => self.writeOAMDATA(val), // OAMDATA
             5 => self.writePPUScroll(val), // PPUSCROLL
-            6 => self.setPPUAddr(val), // PPUADDR
-            7 => self.writePPUData(val), // PPUDATA
+            6 => self.writePPUADDR(val), // PPUADDR
+            7 => self.writePPUDATA(val), // PPUDATA
             else => unreachable,
         }
 
@@ -689,7 +689,7 @@ pub const PPU = struct {
         return switch (register) {
             2 => self.readPPUStatus(),
             4 => self.oam[self.oam_addr],
-            7 => self.readFromPPUAddr(),
+            7 => self.readPPUDATA(),
             // reading from any other register is undefined behavior
             else => 0,
         };
