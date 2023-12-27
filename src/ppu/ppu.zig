@@ -136,25 +136,26 @@ pub const PPU = struct {
     /// Every 8 cycles, the data for the next tile is loaded into the upper 8 bits (next_tile).
     /// When the current pixel is fetched, the data in this register is shifted by 1 bit.
     pub const ShiftReg16 = packed struct {
+        /// NOTE: The order of these two fields matter!
+        /// A sliver of pattern table bits The next tile to be rendered.
+        next_tile: u8 = 0,
         /// A sliver of pattern table bits for the current tile being rendered.
         curr_tile: u8 = 0,
-        /// A sliver of pattern table bits The next tile to be rendered.
-        next_tile: u8 = 1,
 
         /// Shift the contents of the register one bit to the right, and
         /// return the bit that was shifted out (this will be the LSB).
         pub fn shift(self: *ShiftReg16) void {
             var bits: u16 = @bitCast(self.*);
-            self.* = @bitCast(bits >> 1);
+            self.* = @bitCast(bits << 1);
         }
 
         /// Return the lowest bit stored in the the register as a u8.
         pub fn lsb(self: *ShiftReg16) u8 {
-            return self.curr_tile & 0b1;
+            return self.curr_tile & 0b0000_0001;
         }
 
         /// Set the pattern table data for the next tile.
-        pub fn setNext(self: *ShiftReg16, value: u8) void {
+        pub fn setNextTile(self: *ShiftReg16, value: u8) void {
             self.next_tile = value;
         }
     };
@@ -345,8 +346,8 @@ pub const PPU = struct {
     /// Load data from internal registers into the shift registers.
     /// This function should be called on every visible cycle that is a multiple of 8.
     fn reloadBgRegisters(self: *Self) void {
-        self.pattern_table_shifter_lo.next_tile = self.pattern_lo;
-        self.pattern_table_shifter_hi.next_tile = self.pattern_hi;
+        self.pattern_table_shifter_lo.setNextTile(self.pattern_lo);
+        self.pattern_table_shifter_hi.setNextTile(self.pattern_hi);
         // TODO: also load the palette latch
     }
 
