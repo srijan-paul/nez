@@ -723,7 +723,6 @@ pub const CPU = struct {
             // store current PC, store current status flags,
             // point the PC to the NMI handler addr, etc.
             self.triggerNMI();
-            std.debug.print("NMI triggered\n", .{});
         }
 
         self.currentInstr = self.nextInstruction();
