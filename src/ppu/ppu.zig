@@ -85,12 +85,22 @@ pub const PPU = struct {
     oam_dma: u8 = 0, // $4014
     // Stores the sprite data for 64 sprites.
     oam: [256]u8 = [_]u8{0} ** 256,
-
     /// Secondary OAM stores the sprites for the current scanline (for upto 8 sprites).
     /// Each sprite uses 4 bytes (Y-pos, PT tile-index, attributes, X-pos).
-    secondary_oam: [8][4]u8 = [_][4]u8{.{ 0, 0, 0, 0 }} ** 8,
-
+    /// Therefore, secondary OAM is 32 bytes long (8 sprites * 4 bytes for each sprite).
+    secondary_oam: [32]u8 = [_]u8{0} ** 32,
     sprite_shifters: [8]ShiftReg8 = .{0} ** 8,
+
+    // ---------------------
+    // ** Internal state needed to track the transfer of OAM data from primary to secondary OAM. **
+    // ---------------------
+    oam_sprite_index: u8 = 0, // current sprite being evaluated
+    oam_attr_index: u8 = 0, // current attribute of the sprite^ being evaluated
+    secondary_oam_next_slot: u8 = 0, // next slot in secondary OAM to write to (0 to 32)
+
+    /// The PPU stores a byte of data from primary OAM in this latch on odd cycles.
+    /// On even cycles, this latch is copied into the secondary OAM.
+    oam_transfer_latch: u8 = 0,
 
     // We want the PPU to start on the pre-render scanline.
     // So the scanline and dot are set to 260, and 240 respectively.
@@ -137,11 +147,12 @@ pub const PPU = struct {
     /// But mine is a u8 just so a modern CPU can crunch this number quick.
     fine_x: u8 = 0,
 
-    // In the following cycle, the PPU fetches the palette attribute byte for this nametable byte.
-    // And then, it fetches two bytes,
-    // each representing a sliver of a pattern table plane for the tile to be rendered.
+    /// A latch that contains the name table byte for the next tile.
     nametable_byte: u8 = 0,
-    attr_table_byte: u8 = 0,
+
+    /// Internal latch that contains the 2-bit palette index for the next tile (fetched
+    /// from the attribute table).
+    bg_palette_index: u8 = 0,
 
     /// Every 8 cycles, the PPU makes fetches the pattern table data for the next tile,
     /// and stores the data into two internal latches (one for high bit plane, and one for low).
@@ -158,9 +169,6 @@ pub const PPU = struct {
     /// Every 8 cycles, the data for the next tile is loaded into the upper 8 bits (next_tile).
     pattern_table_shifter_lo: ShiftReg16 = .{},
     pattern_table_shifter_hi: ShiftReg16 = .{},
-
-    at_data_lo: ShiftReg8 = 0,
-    at_data_hi: ShiftReg8 = 0,
 
     /// To access the CHR-ROM (and other possibly data on the cartridge),
     /// The PPU bus is connected to a Mapper on the cartridge.
@@ -280,14 +288,14 @@ pub const PPU = struct {
         return self.busRead(nt_addr);
     }
 
-    /// Fetch a byte of data from the attribute table based on the current value of the
+    /// Fetch the 2-bit palette index for the current tile from the attribute table.
     /// `vram_addr` (v) register.
     fn fetchAttrTableByte(self: *Self) u8 {
-        var coarse_x: u16 = self.vram_addr.coarse_x;
-        var coarse_y: u16 = self.vram_addr.coarse_y;
+        var tile_x: u8 = self.vram_addr.coarse_x;
+        var tile_y: u8 = self.vram_addr.coarse_y;
 
-        var at_x = coarse_x / 4;
-        var at_y = coarse_y / 4;
+        var at_x: u16 = tile_x / 4;
+        var at_y: u16 = tile_y / 4;
 
         var nt_number: u16 = self.vram_addr.nametable;
         std.debug.assert(nt_number < 4);
@@ -298,7 +306,12 @@ pub const PPU = struct {
         var at_addr = at_base_addr + at_y * 8 + at_x;
         std.debug.assert(at_addr >= at_base_addr and at_addr < at_base_addr + 64);
 
-        return self.busRead(at_addr);
+        // Find the 2-bit palette index for the current tile from within the attribute byte.
+        var shift = (4 * (tile_y % 2) + 2 * (tile_x % 2));
+        std.debug.assert(shift < 8 and shift & 0b1 == 0);
+        var at_byte = self.busRead(at_addr);
+        var palette_index = (at_byte >> @truncate(shift)) & 0b0000_0011;
+        return palette_index;
     }
 
     /// increment the fine and coarse Y based on the current
@@ -352,7 +365,8 @@ pub const PPU = struct {
         var lo_bit = self.pattern_table_shifter_lo.lsb();
         var hi_bit = self.pattern_table_shifter_hi.lsb();
         var color_index = hi_bit << 1 | lo_bit;
-        var color_id = self.busRead(bg_palette_base_addr + color_index);
+        var palette_base_addr = bg_palette_base_addr + self.bg_palette_index * bg_palette_size;
+        var color_id = self.busRead(palette_base_addr + color_index);
         std.debug.assert(color_id < 64);
 
         if (self.frame_buffer_pos >= self.frame_buffer.len) {
@@ -404,7 +418,8 @@ pub const PPU = struct {
         switch (subcycle) {
             // fetch the name table byte.
             2 => self.nametable_byte = self.fetchNameTableByte(),
-            4 => self.attr_table_byte = self.fetchAttrTableByte(),
+            // fetch the palette to use for the next tile from the attribute table.
+            4 => self.bg_palette_index = self.fetchAttrTableByte(),
             // Fetch the low bit plane of the pattern table for the next tile.
             6 => self.pattern_lo = self.fetchFromPatternTable(
                 self.nametable_byte,
@@ -455,15 +470,85 @@ pub const PPU = struct {
     }
 
     /// Sprite evaluation that occurrs on every dot of a visible scanline.
+    /// Ref: https://www.nesdev.org/wiki/PPU_sprite_evaluation
     fn spriteEval(self: *Self) void {
+        if (!self.ppu_mask.draw_sprites) return;
+
         switch (self.cycle) {
             1 => {
-                for (0..8) |sprite_index| {
-                    for (0..4) |attr| {
-                        self.secondary_oam[sprite_index][attr] = 0xFF;
+                for (0..32) |i| {
+                    self.secondary_oam[i] = 0xFF;
+                }
+            },
+
+            64 => {
+                // n = 0, m = 0 (as mentioned in the NES wiki doc linked above).
+                self.oam_attr_index = 0;
+                self.oam_sprite_index = 0;
+                self.secondary_oam_next_slot = 0;
+            },
+
+            65...256 => {
+                if (self.oam_attr_index == 4) {
+                    // We've copied all 4 bytes of the current sprite into secondary OAM.
+                    // Go to the next sprite.
+                    self.oam_sprite_index += 1;
+                    self.oam_attr_index = 0;
+                }
+
+                if (self.oam_sprite_index > 63) {
+                    // We've copied all 64 sprites into secondary OAM.
+                    // We're done with sprite evaluation.
+                    // TODO: do we still need to perform some operations here? (IDK)
+                    return;
+                }
+
+                if (self.secondary_oam_next_slot == 32) {
+                    // We've filled up all 8 sprites of secondary OAM. (Each sprites is 4 bytes)
+                    return;
+                }
+
+                // sanity checks to avoid OOB access.
+                std.debug.assert(self.oam_attr_index < 4);
+                std.debug.assert(self.oam_sprite_index < 64);
+                std.debug.assert(self.secondary_oam_next_slot < 32);
+
+                if (self.cycle % 2 == 1) {
+                    // on odd cycles, read data from primary OAM
+                    var byte_addr = 4 * self.oam_sprite_index + self.oam_attr_index;
+                    self.oam_transfer_latch = self.oam[byte_addr];
+                } else {
+                    // If the PPU found a sprite that is visible on the current scanline
+                    // in a previous cycle, then it will copy the remaining bytes of that sprite
+                    // in the current cycle.
+                    // Otherwise, it will check the Y-coordinate of the next sprite in primary OAM,
+                    // and copy that to secondary OAM if it overlaps the current scanline.
+                    if (self.oam_attr_index == 0) {
+                        // Either we've fully copied the previous sprite into secondary OAM,
+                        // or, we failed to find a sprite that is visible on the current scanline,
+                        // so, we're looking for the next sprite that is visible on the current scanline.
+                        self.secondary_oam[self.secondary_oam_next_slot] = self.oam_transfer_latch;
+
+                        var sprite_y = self.oam_transfer_latch;
+                        var current_y = self.current_scanline;
+                        var is_visible = sprite_y < current_y and (sprite_y + 8) >= current_y;
+                        if (is_visible) {
+                            // The sprite is visible on the current scanline. Copy the rest of its bytes
+                            self.secondary_oam_next_slot += 1;
+                            self.oam_attr_index += 1;
+                        } else {
+                            // go to the next sprite, and check (after 1 cycle), if its
+                            // visible on this scanline.
+                            self.oam_sprite_index += 1;
+                        }
+                    } else {
+                        self.secondary_oam[self.secondary_oam_next_slot] = self.oam_transfer_latch;
+                        self.secondary_oam_next_slot += 1;
+                        self.oam_attr_index += 1;
                     }
                 }
             },
+            else => {},
         }
     }
 
@@ -502,6 +587,10 @@ pub const PPU = struct {
         // OAMADDR is zeroed out on dots 257-320 of pre-render and visible scanlines.
         if (self.cycle >= 257 and self.cycle <= 320) {
             self.oam_addr = 0;
+        }
+
+        if (self.cycle >= 65 and self.cycle <= 256) {
+            self.spriteEval();
         }
 
         var subcycle = self.cycle % 8;
