@@ -174,7 +174,33 @@ pub const PPU = struct {
     /// The PPU bus is connected to a Mapper on the cartridge.
     mapper: *Mapper,
 
+    /// Internal  latch that stores sprite data for the current scanline.
+    fg_sprite_latches: [8]u8 = .{0} ** 8,
+
     const Self = @This();
+
+    /// A foreground sprite
+    const Sprite = struct {
+        y_coord: u8 = 0,
+        // index into the pattern table.
+        tile_index: u8 = 0,
+        // attributes of the sprite.
+        attr: SpriteAttributes = .{},
+        x_coord: u8 = 0,
+    };
+
+    /// Internal representation of a foreground sprite (8x8)
+    const SpriteAttributes = packed struct {
+        palette: u2 = 0,
+        unused: u3 = 0,
+        priority: bool = false,
+        flip_horz: bool = false,
+        flip_vert: bool = false,
+
+        comptime {
+            std.debug.assert(@bitSizeOf(SpriteAttributes) == 8);
+        }
+    };
 
     /// 16-bit shift register to hold pattern-table data.
     /// Every 8 cycles, the data for the next tile is loaded into the upper 8 bits (next_tile).
@@ -361,7 +387,6 @@ pub const PPU = struct {
     fn renderPixel(self: *Self) void {
         // Fetch the pattern table bits for the current pixel.
         // Use that to select a color from the palette.
-        // TODO: select the palette based on the attribute table.
         var lo_bit = self.pattern_table_shifter_lo.lsb();
         var hi_bit = self.pattern_table_shifter_hi.lsb();
         var color_index = hi_bit << 1 | lo_bit;
@@ -548,6 +573,31 @@ pub const PPU = struct {
                     }
                 }
             },
+
+            // The PPU fetches sprites for the next scanline.
+            // 8 sprites are fetched in cycles [257, 320].
+            // 8 cycles are required to fetch each sprite.
+            257 => {
+                var secondary_oam_index: usize = 0;
+                for (0..8) |i| {
+                    var sprite_y = self.secondary_oam[secondary_oam_index];
+                    var tile_index = self.secondary_oam[secondary_oam_index + 1];
+                    var attrs = self.secondary_oam[secondary_oam_index + 2];
+                    var sprite_x = self.secondary_oam[secondary_oam_index + 3];
+
+                    var sprite: Sprite = .{
+                        .y_coord = sprite_y,
+                        .tile_index = tile_index,
+                        .attr = @bitCast(attrs),
+                        .x_coord = sprite_x,
+                    };
+
+                    self.fg_sprite_latches[i] = sprite;
+                    secondary_oam_index += 4;
+                    std.debug.assert(secondary_oam_index < 32);
+                }
+            },
+
             else => {},
         }
     }
