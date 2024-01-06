@@ -175,7 +175,7 @@ pub const PPU = struct {
     mapper: *Mapper,
 
     /// Internal  latch that stores sprite data for the current scanline.
-    fg_sprite_latches: [8]u8 = .{0} ** 8,
+    fg_sprite_latches: [8]Sprite = .{.{}} ** 8,
 
     const Self = @This();
 
@@ -383,8 +383,8 @@ pub const PPU = struct {
         self.vram_addr.coarse_x = @truncate(coarse_x);
     }
 
-    /// Render a pixel to the frame buffer.
-    fn renderPixel(self: *Self) void {
+    /// Fetch the color of the current background pixel.
+    fn fetchBGPixel(self: *Self) u8 {
         // Fetch the pattern table bits for the current pixel.
         // Use that to select a color from the palette.
         var lo_bit = self.pattern_table_shifter_lo.lsb();
@@ -394,6 +394,12 @@ pub const PPU = struct {
         var color_id = self.busRead(palette_base_addr + color_index);
         std.debug.assert(color_id < 64);
 
+        return color_id;
+    }
+
+    /// Render a pixel to the frame buffer.
+    fn renderPixel(self: *Self) void {
+        var color_id = self.fetchBGPixel();
         if (self.frame_buffer_pos >= self.frame_buffer.len) {
             var row = self.frame_buffer_pos / 256;
             var col = self.frame_buffer_pos % 256;
