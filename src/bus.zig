@@ -101,7 +101,12 @@ pub const NESBus = struct {
         switch (addr) {
             0...0x1FFF => self.ram[addr % w_ram_size] = val,
             0x2000...0x3FFF => self.ppu.writeRegister(addr, val),
-            0x4000...0x4017 => {}, // TODO
+            0x4000...0x4017 => {
+                if (addr == 0x4014) {
+                    self.ppu.writeOAMDMA(val);
+                }
+                // TODO: APU, controller I/O.
+            },
             0x4018...0x401F => {}, // TODO
             else => self.mapper.write(addr, val),
         }

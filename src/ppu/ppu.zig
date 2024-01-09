@@ -89,13 +89,12 @@ pub const PPU = struct {
     /// Each sprite uses 4 bytes (Y-pos, PT tile-index, attributes, X-pos).
     /// Therefore, secondary OAM is 32 bytes long (8 sprites * 4 bytes for each sprite).
     secondary_oam: [32]u8 = [_]u8{0} ** 32,
-    sprite_shifters: [8]ShiftReg8 = .{0} ** 8,
 
     // ---------------------
     // ** Internal state needed to track the transfer of OAM data from primary to secondary OAM. **
     // ---------------------
     oam_sprite_index: u8 = 0, // current sprite being evaluated
-    oam_attr_index: u8 = 0, // current attribute of the sprite^ being evaluated
+    oam_attr_index: u8 = 0, // current attribute byte of the sprite^ being evaluated (between 0-4)
     secondary_oam_next_slot: u8 = 0, // next slot in secondary OAM to write to (0 to 32)
 
     /// The PPU stores a byte of data from primary OAM in this latch on odd cycles.
@@ -179,11 +178,14 @@ pub const PPU = struct {
 
     const Self = @This();
 
-    /// A foreground sprite
+    /// A Foreground sprite.
+    /// This struct is loaded from PPU memory between cycles 257 and 320.
     const Sprite = struct {
         y_coord: u8 = 0,
-        // index into the pattern table.
-        tile_index: u8 = 0,
+        // lo bitplane of the pattern byte belonging to this sprite.
+        pattern_table_lo: u8 = 0,
+        // hi bitplane of the pattern byte belonging to this sprite.
+        pattern_table_hi: u8 = 0,
         // attributes of the sprite.
         attr: SpriteAttributes = .{},
         x_coord: u8 = 0,
@@ -240,7 +242,7 @@ pub const PPU = struct {
         increment_mode_32: bool = false,
         pattern_sprite: bool = false,
         pattern_background: bool = false,
-        sprite_size: bool = false,
+        sprite_is_8x16: bool = false,
         slave_mode: bool = false,
         generate_nmi: bool = false,
     };
@@ -282,14 +284,26 @@ pub const PPU = struct {
     }
 
     /// Fetch a byte of data from one of the two pattern tables.
-    /// The pattern table is chosen from the `pattern_background` bit of the PPUCTRL register.
-    fn fetchFromPatternTable(self: *Self, addr: u16, is_low_plane: bool) u8 {
+    ///
+    /// `addr`: Address of the tile to fetch (0-256)
+    ///
+    /// `is_low_plane`: `true` if we're fetching the low bitplane.
+    ///
+    /// `pt_number`: 0 if we're fetching from the PT at $0000, 1 if we're using the one at $1000
+    ///
+    /// `fine_y`: The fine-y scroll value (0-7). This is used to select the row of the tile to fetch.
+    /// This argument is generally set to `self.vram_addr.fine_y` (3 bits from the `v` register).
+    pub fn fetchFromPatternTable(
+        self: *Self,
+        addr: u16,
+        is_low_plane: bool,
+        pt_number: u1,
+    ) u8 {
+        // TODO: this function is marked `pub`, and can be used by the emulator to display
+        // debug data. Make sure this doesn't mess up mappers that can detect reads.
         var fine_y: u16 = self.vram_addr.fine_y;
-        var pt_number: u16 =
-            if (self.ppu_ctrl.pattern_background) 1 else 0;
-
         var pt_addr =
-            (pt_number * 0x1000) +
+            (@as(u16, pt_number) * 0x1000) +
             (addr * 16) +
             fine_y;
 
@@ -297,6 +311,39 @@ pub const PPU = struct {
             self.busRead(pt_addr)
         else
             self.busRead(pt_addr + 8);
+    }
+
+    /// Fetch a byte of data from the pattern table for background use.
+    /// The pattern table is chosen from the `pattern_background` bit of the PPUCTRL register.
+    ///
+    /// `addr`: Index of the tile to fetch from within the pattern table (0-256)
+    ///
+    /// `is_low_plane`: `true` if we're fetching a byte from the low-bitplane of the tile.
+    fn fetchPatternTableBG(self: *Self, addr: u16, is_low_plane: bool) u8 {
+        var pt_number: u1 =
+            if (self.ppu_ctrl.pattern_background) 1 else 0;
+        return self.fetchFromPatternTable(
+            addr,
+            is_low_plane,
+            pt_number,
+        );
+    }
+
+    /// Fetch a byte of data from the pattern table for foreground use.
+    /// The pattern table is chosen from the `pattern_sprite` bit of the PPUCTRL register.
+    ///
+    /// `addr`: Index of the tile to fetch from within the pattern table (0-256)
+    ///
+    /// `is_low_plane`: `true` if we're fetching a byte from the low-bitplane of the tile.
+    fn fetchPatternTableFG(self: *Self, addr: u16, is_low_plane: bool) u8 {
+        var pt_number: u1 =
+            if (self.ppu_ctrl.pattern_sprite) 1 else 0;
+
+        return self.fetchFromPatternTable(
+            addr,
+            is_low_plane,
+            pt_number,
+        );
     }
 
     /// Fetch the next byte from the name table.
@@ -409,6 +456,24 @@ pub const PPU = struct {
             );
         }
 
+        // Visit all the sprite latches and see if any of the sprites in
+        // there should be drawn on top of the background.
+        for (0..8) |i| {
+            var sprite = self.fg_sprite_latches[i];
+            var sprite_x_start = sprite.x_coord;
+            var sprite_x_end = @addWithOverflow(sprite_x_start, 8)[0];
+
+            var current_x = self.cycle;
+            if (current_x >= sprite_x_start and current_x < sprite_x_end) {
+                var pixel_coord: u3 = @truncate(current_x - sprite_x_start);
+                var color_lo = (sprite.pattern_table_lo >> pixel_coord) & 0b1;
+                _ = color_lo;
+                var color_hi = (sprite.pattern_table_hi >> pixel_coord) & 0b1;
+                _ = color_hi;
+                // color_id = color_hi << 1 | color_lo;
+            }
+        }
+
         // std.debug.print(
         // "[SC {}, dot {}, coord({}, {}), coarse-x: {}, coarse-y: {}]\n",
         // .{ self.current_scanline, self.cycle, row, col, self.vram_addr.coarse_x, self.vram_addr.coarse_y },
@@ -452,14 +517,14 @@ pub const PPU = struct {
             // fetch the palette to use for the next tile from the attribute table.
             4 => self.bg_palette_index = self.fetchAttrTableByte(),
             // Fetch the low bit plane of the pattern table for the next tile.
-            6 => self.pattern_lo = self.fetchFromPatternTable(
+            6 => self.pattern_lo = self.fetchPatternTableBG(
                 self.nametable_byte,
                 true,
             ),
 
             // Fetch the high bitplane of the pattern table for the next tile.
             0 => {
-                self.pattern_hi = self.fetchFromPatternTable(
+                self.pattern_hi = self.fetchPatternTableBG(
                     self.nametable_byte,
                     false,
                 );
@@ -514,8 +579,8 @@ pub const PPU = struct {
 
             64 => {
                 // n = 0, m = 0 (as mentioned in the NES wiki doc linked above).
-                self.oam_attr_index = 0;
-                self.oam_sprite_index = 0;
+                self.oam_sprite_index = 0; // N = 0
+                self.oam_attr_index = 0; // M = 0
                 self.secondary_oam_next_slot = 0;
             },
 
@@ -558,17 +623,18 @@ pub const PPU = struct {
                         // Either we've fully copied the previous sprite into secondary OAM,
                         // or, we failed to find a sprite that is visible on the current scanline,
                         // so, we're looking for the next sprite that is visible on the current scanline.
-                        self.secondary_oam[self.secondary_oam_next_slot] = self.oam_transfer_latch;
 
-                        var sprite_y = self.oam_transfer_latch;
+                        var sprite_y: u16 = self.oam_transfer_latch;
                         var current_y = self.current_scanline;
                         var is_visible = sprite_y < current_y and (sprite_y + 8) >= current_y;
                         if (is_visible) {
                             // The sprite is visible on the current scanline. Copy the rest of its bytes
+
+                            self.secondary_oam[self.secondary_oam_next_slot] = self.oam_transfer_latch;
                             self.secondary_oam_next_slot += 1;
                             self.oam_attr_index += 1;
                         } else {
-                            // go to the next sprite, and check (after 1 cycle), if its
+                            // Go to the next sprite, and check (after 1 cycle), if its
                             // visible on this scanline.
                             self.oam_sprite_index += 1;
                         }
@@ -583,6 +649,7 @@ pub const PPU = struct {
             // The PPU fetches sprites for the next scanline.
             // 8 sprites are fetched in cycles [257, 320].
             // 8 cycles are required to fetch each sprite.
+            // TODO: do these in a cycle accurate manner, since we're reading from the pattern table.
             257 => {
                 var secondary_oam_index: usize = 0;
                 for (0..8) |i| {
@@ -591,16 +658,20 @@ pub const PPU = struct {
                     var attrs = self.secondary_oam[secondary_oam_index + 2];
                     var sprite_x = self.secondary_oam[secondary_oam_index + 3];
 
+                    var pt_lo = self.fetchPatternTableFG(tile_index, true);
+                    var pt_hi = self.fetchPatternTableFG(tile_index, false);
+
                     var sprite: Sprite = .{
                         .y_coord = sprite_y,
-                        .tile_index = tile_index,
+                        .pattern_table_lo = pt_lo,
+                        .pattern_table_hi = pt_hi,
                         .attr = @bitCast(attrs),
                         .x_coord = sprite_x,
                     };
 
                     self.fg_sprite_latches[i] = sprite;
                     secondary_oam_index += 4;
-                    std.debug.assert(secondary_oam_index < 32);
+                    std.debug.assert(secondary_oam_index <= 32);
                 }
             },
 
@@ -645,7 +716,11 @@ pub const PPU = struct {
             self.oam_addr = 0;
         }
 
-        if (self.cycle >= 65 and self.cycle <= 256) {
+        if (self.ppu_mask.draw_sprites) {
+            if (self.ppu_ctrl.sprite_is_8x16) {
+                // TODO: support 8x16 sprites.
+                std.debug.panic("8x16 mode not supported", .{});
+            }
             self.spriteEval();
         }
 
@@ -837,7 +912,7 @@ pub const PPU = struct {
     /// Perform a DMA transfer of 256 bytes from CPU memory to OAM memory.
     /// `oamDMA`: The byte that was written to OAMDMA register.
     /// (This function should be called when the CPU writes to $4014).
-    fn writeOAMDMA(self: *Self, oamDMA: u16) void {
+    pub fn writeOAMDMA(self: *Self, oamDMA: u16) void {
         // When writing to OAM memory, the programmer will write the
         // high byte of the CPU address to OAMADDR, and then write the
         // low byte of the CPU address to OAMDMA.
@@ -846,8 +921,8 @@ pub const PPU = struct {
         // STA OAMADDR
         // LDA #$02
         // STA OAMDMA
-        // TODO: do this asynchronusly.
-        var cpuAddr = (self.oam_addr << 8) | oamDMA;
+        // TODO: make this async.
+        var cpuAddr = (@as(u16, self.oam_addr) << 8) | oamDMA;
         for (0..256) |i| {
             self.oam[i] = self.busRead(cpuAddr);
             cpuAddr = @addWithOverflow(cpuAddr, 1)[0];
@@ -909,8 +984,9 @@ pub const PPU = struct {
     }
 
     /// Dump the contents of the name table to a buffer.
-    pub fn dumpNameTable(self: *Self, allocator: std.mem.Allocator) ![]u8 {
+    pub fn dumpNameTable(self: *Self, allocator: std.mem.Allocator) !void {
         var buf = try allocator.alloc(u8, 0);
+        defer allocator.free(buf);
 
         for (nametable_base_addr..nametable_base_addr + nametable_size) |i| {
             var byte = self.busRead(@truncate(i));
@@ -932,7 +1008,31 @@ pub const PPU = struct {
             buf = tmp;
         }
 
-        return buf;
+        std.debug.print("{s}\n", .{buf});
+    }
+
+    pub fn dumpSprites(self: *Self) !void {
+        std.debug.print("Loaded: \n", .{});
+        for (0..8) |i| {
+            var sprite = self.fg_sprite_latches[i];
+            std.debug.print("Sprite #{d} :", .{i});
+            std.debug.print("(x: ${}, y: ${}, lo: ${}, hi: ${})\n", .{
+                sprite.x_coord,
+                sprite.y_coord,
+                sprite.pattern_table_lo,
+                sprite.pattern_table_hi,
+            });
+        }
+
+        std.debug.print("OAM: \n", .{});
+        for (0..256) |i| {
+            if (i % 16 == 0) {
+                std.debug.print("\n", .{});
+                std.debug.print("${x}: ", .{i});
+            }
+            std.debug.print("${x} ", .{self.oam[i]});
+        }
+        std.debug.print("\n", .{});
     }
 
     /// Load a 4-item buffer with colors from the specified PPU palette.
@@ -998,6 +1098,40 @@ pub const PPU = struct {
                         std.debug.assert(buf_addr < buf.len);
                         buf[buf_addr] = color_id;
                     }
+                }
+            }
+        }
+    }
+
+    /// Loads foreground sprite color data into a buffer (Used for debugging).
+    pub fn getSpriteData(self: *Self, buf: []u8) void {
+        // TODO: support 8x16 mode.
+        std.debug.assert(buf.len == 64 * 8 * 8); // 64 sprites, each is 8x8
+        // decide the pattern table to use for the sprites based on the PPUCTRL register
+        var pt_base_addr: u16 = if (self.ppu_ctrl.pattern_sprite) 0x1000 else 0x0000;
+        const sprites_per_row = 8;
+        const sprites_per_col = 8;
+        for (0..64) |sprite_index| {
+            var tile_index: u16 = self.oam[sprite_index * 4 + 1]; // tile in the pattern table
+            var attrs: SpriteAttributes = @bitCast(self.oam[sprite_index * 4 + 2]);
+            for (0..8) |pxrow| {
+                var px_row: u16 = @truncate(pxrow);
+                var lo_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row);
+                var hi_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row + 8);
+                for (0..8) |px| {
+                    var lo_bit = (lo_byte >> @truncate(px)) & 0b1;
+                    var hi_bit = (hi_byte >> @truncate(px)) & 0b1;
+
+                    var color_index = hi_bit << 1 | lo_bit;
+                    var palette_index: u16 = attrs.palette;
+                    var addr = bg_palette_base_addr + 16 * palette_index + color_index;
+                    var color_id = self.busRead(addr);
+
+                    var bufrow = (sprite_index / sprites_per_row) * 8 + px_row;
+                    var bufcol = (sprite_index % sprites_per_col) * 8 + px;
+                    var buf_index = bufrow * 64 + bufcol;
+                    std.debug.assert(buf_index < buf.len);
+                    buf[buf_index] = color_id;
                 }
             }
         }

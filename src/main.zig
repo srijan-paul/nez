@@ -9,6 +9,7 @@ const NESConsole = @import("./nes.zig").Console;
 
 const PatternTableView = views.PatternTableView;
 const PaletteView = views.PaletteView;
+const PrimaryOAMView = views.PrimaryOAMView;
 
 const fmt = std.fmt;
 /// TODO: make this a relative path lol.
@@ -89,6 +90,9 @@ pub fn main() !void {
 
     var palette_view = PaletteView.init(emu.ppu);
 
+    var sprite_view = PrimaryOAMView.init(allocator, emu.ppu);
+    defer sprite_view.deinit();
+
     while (!rl.WindowShouldClose()) {
         var now: u64 = @intCast(std.time.milliTimestamp());
         var dt: u64 = now - then;
@@ -99,9 +103,7 @@ pub fn main() !void {
 
         _ = try emu.update(dt);
         if (rl.IsKeyPressed(rl.KeyboardKey.KEY_SPACE)) {
-            var nameTable = try emu.ppu.dumpNameTable(allocator);
-            defer allocator.free(nameTable);
-            std.debug.print("{s}\n", .{nameTable});
+            try emu.ppu.dumpSprites();
             // try emu.debugTick();
         }
 
@@ -109,6 +111,7 @@ pub fn main() !void {
         pt_view.draw(emu.ppu, 0);
         pt_view.draw(emu.ppu, 1);
         palette_view.draw();
+        sprite_view.draw();
 
         registerWin.draw();
         try registerWin.drawLabelUint(100, 56, 24, 24, emu.cpu.A);

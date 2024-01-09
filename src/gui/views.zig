@@ -10,6 +10,71 @@ const Allocator = std.mem.Allocator;
 pub const UIPositions = struct {
     pub const palette_y = (PPU.ScreenHeight * 2 + 16);
     pub const pattern_table_y = (PPU.ScreenHeight * 2 + 64);
+    pub const primary_oam_y = 32;
+    pub const primary_oam_x = PPU.ScreenWidth * 2 + 64;
+};
+
+pub const PrimaryOAMView = struct {
+    const Self = @This();
+    ppu: *PPU,
+    texture: rl.Texture2D,
+    allocator: Allocator,
+    oam_buf: [64 * 64]u8 = [_]u8{0} ** (64 * 64),
+    texture_buf: [bufsize]u8 = [_]u8{0} ** bufsize,
+
+    const bufsize: usize = 64 * 64 * 3; // 64 px wide, 64 px tall, 3 bytes per px (RGB).
+
+    pub fn init(allocator: Allocator, ppu: *PPU) Self {
+        var self = Self{
+            .ppu = ppu,
+            .allocator = allocator,
+            .texture = undefined,
+        };
+
+        var image = rl.Image{
+            .data = &self.texture_buf,
+            .width = 8 * 8, // 8 sprites per row, 8 pixels per sprite.
+            .height = 8 * 8, // 8 sprites per column, 8 pixels per sprite.
+            .mipmaps = 1,
+            .format = @intFromEnum(rl.rlPixelFormat.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8),
+        };
+
+        self.texture = rl.LoadTextureFromImage(image);
+        return self;
+    }
+
+    pub fn deinit(self: *Self) void {
+        rl.UnloadTexture(self.texture);
+    }
+
+    const scale = 2;
+    const srcScale = rl.Rectangle{ .x = 0, .y = 0, .width = 64, .height = 64 };
+    const dstScale = rl.Rectangle{ .x = 0, .y = 0, .width = 64 * scale, .height = 64 * scale };
+
+    pub fn draw(self: *Self) void {
+        // TODO: suppot 8x16 mode.
+        self.ppu.getSpriteData(&self.oam_buf);
+        for (0..self.oam_buf.len) |i| {
+            var color_id = self.oam_buf[i];
+            var color = PPUPalette[color_id];
+            self.texture_buf[i * 3] = color.r;
+            self.texture_buf[i * 3 + 1] = color.g;
+            self.texture_buf[i * 3 + 2] = color.b;
+        }
+
+        rl.UpdateTexture(self.texture, &self.texture_buf);
+        rl.DrawTexturePro(
+            self.texture,
+            srcScale,
+            dstScale,
+            rl.Vector2{
+                .x = -UIPositions.primary_oam_x,
+                .y = -UIPositions.primary_oam_y,
+            },
+            0,
+            rl.WHITE,
+        );
+    }
 };
 
 /// The PPU's palette viewer.
