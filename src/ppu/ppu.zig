@@ -1,6 +1,7 @@
 const std = @import("std");
 const palette = @import("./ppu-colors.zig");
 const Mapper = @import("../mappers/mapper.zig").Mapper;
+const CPU = @import("../cpu.zig").CPU;
 
 pub const Color = palette.Color;
 pub const Palette = palette.Palette;
@@ -59,6 +60,9 @@ pub const PPU = struct {
     /// size of each pattern table (16 x 16 tiles * 8 bytes per bit-plane * 2 bit-planes per tile)
     pub const pattern_table_size: u16 = 16 * 16 * 8 * 2; // 0x1000
     pub const pattern_table_size_px: u16 = 128 * 128;
+
+    /// A reference to the CPU connected to this PPU device.
+    cpu: *CPU,
 
     /// When `true`, it means the PPU has generated an NMI interrupt,
     /// and the CPU needs to handle it.
@@ -279,8 +283,8 @@ pub const PPU = struct {
         }
     };
 
-    pub fn init(mapper: *Mapper) PPU {
-        return Self{ .mapper = mapper };
+    pub fn init(cpu: *CPU, mapper: *Mapper) PPU {
+        return Self{ .mapper = mapper, .cpu = cpu };
     }
 
     /// Fetch a byte of data from one of the two pattern tables.
@@ -912,7 +916,7 @@ pub const PPU = struct {
     /// Perform a DMA transfer of 256 bytes from CPU memory to OAM memory.
     /// `oamDMA`: The byte that was written to OAMDMA register.
     /// (This function should be called when the CPU writes to $4014).
-    pub fn writeOAMDMA(self: *Self, oamDMA: u16) void {
+    pub fn writeOAMDMA(self: *Self, page_start: u16) void {
         // When writing to OAM memory, the programmer will write the
         // high byte of the CPU address to OAMADDR, and then write the
         // low byte of the CPU address to OAMDMA.
@@ -922,11 +926,11 @@ pub const PPU = struct {
         // LDA #$02
         // STA OAMDMA
         // TODO: make this async.
-        var cpuAddr = (@as(u16, self.oam_addr) << 8) | oamDMA;
-        for (0..256) |i| {
-            self.oam[i] = self.busRead(cpuAddr);
-            cpuAddr = @addWithOverflow(cpuAddr, 1)[0];
+        var cpu_addr = page_start << 8;
+        for (0..256) |_| {
+            self.oam[self.oam_addr] = self.cpu.memRead(cpu_addr);
             self.oam_addr = @addWithOverflow(self.oam_addr, 1)[0];
+            cpu_addr = @addWithOverflow(cpu_addr, 1)[0];
         }
     }
 

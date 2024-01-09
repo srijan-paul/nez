@@ -34,10 +34,10 @@ pub const Console = struct {
         var mainBus = try allocator.create(NESBus);
         mainBus.* = try NESBus.init(allocator, cart, ppu);
 
-        ppu.* = PPU.init(mainBus.mapper);
-
         var cpu = try allocator.create(CPU);
         cpu.* = CPU.init(allocator, &mainBus.bus);
+
+        ppu.* = PPU.init(cpu, mainBus.mapper);
 
         return .{
             .allocator = allocator,

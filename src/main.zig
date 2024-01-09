@@ -104,6 +104,7 @@ pub fn main() !void {
         _ = try emu.update(dt);
         if (rl.IsKeyPressed(rl.KeyboardKey.KEY_SPACE)) {
             try emu.ppu.dumpSprites();
+            try emu.cpu.dumpRAM();
             // try emu.debugTick();
         }
 

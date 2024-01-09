@@ -796,6 +796,18 @@ pub const CPU = struct {
             .ram = final_ram,
         };
     }
+
+    pub fn dumpRAM(self: *Self) !void {
+        for (0..256) |i| {
+            var addr = 0x200 + @as(u16, @truncate(i));
+            if (i % 16 == 0) {
+                std.debug.print("\n", .{});
+                std.debug.print("${x}: ", .{addr});
+            }
+
+            std.debug.print("${x} ", .{self.memRead(addr)});
+        }
+    }
 };
 
 // Tests For the 6502 CPU
