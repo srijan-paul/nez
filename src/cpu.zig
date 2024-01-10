@@ -65,7 +65,7 @@ pub const CPU = struct {
     RAM: [w_ram_size]u8 = .{0} ** w_ram_size,
     // number of cycles to cycles to wait
     // before executing the next instruction.
-    cycles_to_wait: u8 = 0,
+    cycles_to_wait: u16 = 0,
 
     // registers
     A: Register = 0,

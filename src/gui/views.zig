@@ -8,10 +8,13 @@ const Allocator = std.mem.Allocator;
 
 /// The coordinates of the UI elements.
 pub const UIPositions = struct {
-    pub const palette_y = (PPU.ScreenHeight * 2 + 16);
+    pub const bg_palette_y = (PPU.ScreenHeight * 2 + 16);
     pub const pattern_table_y = (PPU.ScreenHeight * 2 + 64);
     pub const primary_oam_y = 32;
+    pub const primary_oam_scale = 2.5;
     pub const primary_oam_x = PPU.ScreenWidth * 2 + 64;
+    pub const foreground_palette_y = (primary_oam_y + 64 * primary_oam_scale + 64);
+    pub const foreground_palette_x = primary_oam_x;
 };
 
 pub const PrimaryOAMView = struct {
@@ -47,12 +50,21 @@ pub const PrimaryOAMView = struct {
         rl.UnloadTexture(self.texture);
     }
 
-    const scale = 2;
+    const scale = UIPositions.primary_oam_scale;
     const srcScale = rl.Rectangle{ .x = 0, .y = 0, .width = 64, .height = 64 };
     const dstScale = rl.Rectangle{ .x = 0, .y = 0, .width = 64 * scale, .height = 64 * scale };
 
     pub fn draw(self: *Self) void {
         // TODO: suppot 8x16 mode.
+
+        rl.DrawText(
+            "Sprites (OAM):",
+            UIPositions.primary_oam_x,
+            UIPositions.primary_oam_y,
+            16,
+            rl.WHITE,
+        );
+
         self.ppu.getSpriteData(&self.oam_buf);
         for (0..self.oam_buf.len) |i| {
             var color_id = self.oam_buf[i];
@@ -69,7 +81,7 @@ pub const PrimaryOAMView = struct {
             dstScale,
             rl.Vector2{
                 .x = -UIPositions.primary_oam_x,
-                .y = -UIPositions.primary_oam_y,
+                .y = -(UIPositions.primary_oam_y + 32),
             },
             0,
             rl.WHITE,
@@ -88,8 +100,8 @@ pub const PaletteView = struct {
     }
 
     /// Draw the palette at index i
-    fn drawPalette(self: *Self, palette_index: u8, x: i32, y: i32) void {
-        var color_ids = self.ppu.getPaletteColors(palette_index);
+    fn drawPalette(self: *Self, is_bg: bool, palette_index: u8, x: i32, y: i32) void {
+        var color_ids = self.ppu.getPaletteColors(is_bg, palette_index);
 
         var xoff: i32 = 0;
         for (0..4) |i| {
@@ -106,20 +118,36 @@ pub const PaletteView = struct {
         }
     }
 
-    /// Draw the palettes from the PPU memory.
-    pub fn draw(self: *Self) void {
+    /// Draw the background palettes from the PPU memory.
+    pub fn drawBackgroundPalettes(self: *Self) void {
         var x: i32 = 0;
-        var y: i32 = UIPositions.palette_y;
+        var y: i32 = UIPositions.bg_palette_y;
 
         var xoff: i32 = 4;
         var yoff: i32 = 4;
 
-        rl.DrawText("Palettes (BG)", x + xoff, y + yoff, 16, rl.WHITE);
+        rl.DrawText("Palettes (Background)", x + xoff, y + yoff, 16, rl.WHITE);
 
         yoff += 20;
         for (0..4) |i| {
-            self.drawPalette(@truncate(i), x + xoff, y + yoff);
+            self.drawPalette(true, @truncate(i), x + xoff, y + yoff);
             xoff += 70;
+        }
+    }
+
+    /// Draw the foreground palettes from PPU memory.
+    pub fn drawForegroundPalettes(self: *Self) void {
+        var x: i32 = UIPositions.foreground_palette_x;
+        var y: i32 = UIPositions.foreground_palette_y;
+
+        var xoff: i32 = 4;
+        var yoff: i32 = 4;
+        rl.DrawText("Palettes (Sprite)", x + xoff, y + yoff, 16, rl.WHITE);
+
+        yoff += 20;
+        for (0..4) |i| {
+            self.drawPalette(false, @truncate(i), x + xoff, y + yoff);
+            yoff += 20;
         }
     }
 };

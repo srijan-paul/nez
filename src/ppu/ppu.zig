@@ -55,7 +55,10 @@ pub const PPU = struct {
     /// Base address of palettes for background rendering
     const bg_palette_base_addr: u16 = 0x3F00;
     /// Size of each palette in bytes (= 4).
-    const bg_palette_size: u16 = 4;
+    const palette_size: u16 = 4;
+
+    /// Base address of palettes for foreground rendering
+    const fg_palette_base_addr: u16 = 0x3F10;
 
     /// size of each pattern table (16 x 16 tiles * 8 bytes per bit-plane * 2 bit-planes per tile)
     pub const pattern_table_size: u16 = 16 * 16 * 8 * 2; // 0x1000
@@ -441,7 +444,7 @@ pub const PPU = struct {
         var lo_bit = self.pattern_table_shifter_lo.lsb();
         var hi_bit = self.pattern_table_shifter_hi.lsb();
         var color_index = hi_bit << 1 | lo_bit;
-        var palette_base_addr = bg_palette_base_addr + self.bg_palette_index * bg_palette_size;
+        var palette_base_addr = bg_palette_base_addr + self.bg_palette_index * palette_size;
         var color_id = self.busRead(palette_base_addr + color_index);
         std.debug.assert(color_id < 64);
 
@@ -932,6 +935,7 @@ pub const PPU = struct {
             self.oam_addr = @addWithOverflow(self.oam_addr, 1)[0];
             cpu_addr = @addWithOverflow(cpu_addr, 1)[0];
         }
+        self.cpu.cycles_to_wait += 513;
     }
 
     /// Write a byte of data to the OAMDATA register.
@@ -1016,39 +1020,41 @@ pub const PPU = struct {
     }
 
     pub fn dumpSprites(self: *Self) !void {
-        std.debug.print("Loaded: \n", .{});
-        for (0..8) |i| {
-            var sprite = self.fg_sprite_latches[i];
-            std.debug.print("Sprite #{d} :", .{i});
-            std.debug.print("(x: ${}, y: ${}, lo: ${}, hi: ${})\n", .{
-                sprite.x_coord,
-                sprite.y_coord,
-                sprite.pattern_table_lo,
-                sprite.pattern_table_hi,
-            });
-        }
-
         std.debug.print("OAM: \n", .{});
         for (0..256) |i| {
             if (i % 16 == 0) {
                 std.debug.print("\n", .{});
-                std.debug.print("${x}: ", .{i});
+                std.debug.print("${x:0>4}: ", .{i});
             }
-            std.debug.print("${x} ", .{self.oam[i]});
+            std.debug.print("${x:0>2} ", .{self.oam[i]});
         }
-        std.debug.print("\n", .{});
+        std.debug.print("\nASCII View:\n", .{});
+        for (0..256) |i| {
+            if (i % 16 == 0) {
+                std.debug.print("\n", .{});
+                // std.debug.print("${x:0>4}: ", .{i});
+            }
+            var byte = self.oam[i];
+            if (byte >= 0x20 and byte < 0x7F) {
+                std.debug.print("{c}", .{byte});
+            } else {
+                std.debug.print(".", .{});
+            }
+        }
     }
 
     /// Load a 4-item buffer with colors from the specified PPU palette.
-    pub fn getPaletteColors(self: *Self, palette_index: u8) [4]u8 {
+    pub fn getPaletteColors(self: *Self, is_background: bool, palette_index: u8) [4]u8 {
         std.debug.assert(palette_index < 4);
+
+        var base_addr = if (is_background) bg_palette_base_addr else fg_palette_base_addr;
 
         var colors_buf: [4]u8 = undefined;
         for (0..4) |i| {
             var iu16: u16 = @truncate(i);
             colors_buf[i] = self.busRead(
-                bg_palette_base_addr + // base address of PPU palette RAM
-                    (bg_palette_size * palette_index) + // offset to the palette
+                base_addr + // base address of PPU palette RAM
+                    (palette_size * palette_index) + // offset to the palette
                     iu16, // offset to the color
             );
         }
@@ -1116,8 +1122,9 @@ pub const PPU = struct {
         const sprites_per_row = 8;
         const sprites_per_col = 8;
         for (0..64) |sprite_index| {
-            var tile_index: u16 = self.oam[sprite_index * 4 + 1]; // tile in the pattern table
+            var tile_index: u16 = 0; // tile in the pattern table
             var attrs: SpriteAttributes = @bitCast(self.oam[sprite_index * 4 + 2]);
+            var palette_index: u16 = attrs.palette;
             for (0..8) |pxrow| {
                 var px_row: u16 = @truncate(pxrow);
                 var lo_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row);
@@ -1127,8 +1134,7 @@ pub const PPU = struct {
                     var hi_bit = (hi_byte >> @truncate(px)) & 0b1;
 
                     var color_index = hi_bit << 1 | lo_bit;
-                    var palette_index: u16 = attrs.palette;
-                    var addr = bg_palette_base_addr + 16 * palette_index + color_index;
+                    var addr = fg_palette_base_addr + 16 * palette_index + color_index;
                     var color_id = self.busRead(addr);
 
                     var bufrow = (sprite_index / sprites_per_row) * 8 + px_row;

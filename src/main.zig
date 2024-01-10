@@ -111,7 +111,8 @@ pub fn main() !void {
         drawNesScreen(emu.ppu, &tex);
         pt_view.draw(emu.ppu, 0);
         pt_view.draw(emu.ppu, 1);
-        palette_view.draw();
+        palette_view.drawBackgroundPalettes();
+        palette_view.drawForegroundPalettes();
         sprite_view.draw();
 
         registerWin.draw();
