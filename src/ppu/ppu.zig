@@ -1122,7 +1122,7 @@ pub const PPU = struct {
         const sprites_per_row = 8;
         const sprites_per_col = 8;
         for (0..64) |sprite_index| {
-            var tile_index: u16 = 0; // tile in the pattern table
+            var tile_index: u16 = self.oam[sprite_index * 4 + 1];
             var attrs: SpriteAttributes = @bitCast(self.oam[sprite_index * 4 + 2]);
             var palette_index: u16 = attrs.palette;
             for (0..8) |pxrow| {
@@ -1132,9 +1132,8 @@ pub const PPU = struct {
                 for (0..8) |px| {
                     var lo_bit = (lo_byte >> @truncate(px)) & 0b1;
                     var hi_bit = (hi_byte >> @truncate(px)) & 0b1;
-
                     var color_index = hi_bit << 1 | lo_bit;
-                    var addr = fg_palette_base_addr + 16 * palette_index + color_index;
+                    var addr = fg_palette_base_addr + palette_size * palette_index + color_index;
                     var color_id = self.busRead(addr);
 
                     var bufrow = (sprite_index / sprites_per_row) * 8 + px_row;
