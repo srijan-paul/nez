@@ -454,6 +454,7 @@ pub const PPU = struct {
     /// Render a pixel to the frame buffer.
     fn renderPixel(self: *Self) void {
         var color_id = self.fetchBGPixel();
+        var color = Palette[color_id];
         if (self.frame_buffer_pos >= self.frame_buffer.len) {
             var row = self.frame_buffer_pos / 256;
             var col = self.frame_buffer_pos % 256;
@@ -473,11 +474,16 @@ pub const PPU = struct {
             var current_x = self.cycle;
             if (current_x >= sprite_x_start and current_x < sprite_x_end) {
                 var pixel_coord: u3 = @truncate(current_x - sprite_x_start);
-                var color_lo = (sprite.pattern_table_lo >> pixel_coord) & 0b1;
-                _ = color_lo;
-                var color_hi = (sprite.pattern_table_hi >> pixel_coord) & 0b1;
-                _ = color_hi;
-                // color_id = color_hi << 1 | color_lo;
+                var pt_lo = reversed_bits[sprite.pattern_table_lo];
+                var pt_hi = reversed_bits[sprite.pattern_table_hi];
+                var color_lo = (pt_lo >> pixel_coord) & 0b1;
+                var color_hi = (pt_hi >> pixel_coord) & 0b1;
+                var color_index = color_hi << 1 | color_lo;
+                if (color_index % 4 != 0) {
+                    var palette_base_addr = fg_palette_base_addr + sprite.attr.palette * palette_size;
+                    color_id = self.busRead(palette_base_addr + color_index);
+                    color = Palette[color_id];
+                }
             }
         }
 
@@ -488,7 +494,6 @@ pub const PPU = struct {
 
         self.frame_buffer[self.frame_buffer_pos] = color_id;
         var render_buf_index = self.frame_buffer_pos * 3;
-        var color = Palette[color_id];
         self.render_buffer[render_buf_index] = color.r;
         self.render_buffer[render_buf_index + 1] = color.g;
         self.render_buffer[render_buf_index + 2] = color.b;
