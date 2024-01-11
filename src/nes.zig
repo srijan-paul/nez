@@ -23,6 +23,7 @@ pub const Console = struct {
     cpu: *CPU,
     ppu: *PPU,
     mainBus: *NESBus,
+    is_paused: bool = false,
 
     /// Initialize an NES console from a ROM file.
     pub fn fromROMFile(allocator: Allocator, file_path: [*:0]const u8) !Self {
@@ -81,6 +82,7 @@ pub const Console = struct {
     // `dt`: time elapsed since last call to update in ms.
     // Retrurns the number of CPU cycles executed.
     pub fn update(self: *Self, dt: u64) !u64 {
+        if (self.is_paused) return 0;
         var cpu_cycles: u64 = @intFromFloat(
             std.math.floor(@as(f64, @floatFromInt(dt)) * cpu_cycles_per_ms),
         );

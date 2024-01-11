@@ -473,15 +473,18 @@ pub const PPU = struct {
 
             var current_x = self.cycle;
             if (current_x >= sprite_x_start and current_x < sprite_x_end) {
-                var pixel_coord: u3 = @truncate(current_x - sprite_x_start);
-                var pt_lo = reversed_bits[sprite.pattern_table_lo];
-                var pt_hi = reversed_bits[sprite.pattern_table_hi];
-                var color_lo = (pt_lo >> pixel_coord) & 0b1;
-                var color_hi = (pt_hi >> pixel_coord) & 0b1;
-                var color_index = color_hi << 1 | color_lo;
+                var lo_bitplane = sprite.pattern_table_lo;
+                var hi_bitplane = sprite.pattern_table_hi;
+                var px_coord = current_x - sprite_x_start;
+                var color_hi = (hi_bitplane >> @truncate(7 - px_coord)) & 0b1;
+                var color_lo = (lo_bitplane >> @truncate(7 - px_coord)) & 0b1;
+
+                var color_index: u16 = color_hi << 1 | color_lo;
+                var palette_index: u16 = sprite.attr.palette;
+                var color_id_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
+
                 if (color_index % 4 != 0) {
-                    var palette_base_addr = fg_palette_base_addr + sprite.attr.palette * palette_size;
-                    color_id = self.busRead(palette_base_addr + color_index);
+                    color_id = self.busRead(color_id_addr);
                     color = Palette[color_id];
                 }
             }
@@ -1147,6 +1150,36 @@ pub const PPU = struct {
                     std.debug.assert(buf_index < buf.len);
                     buf[buf_index] = color_id;
                 }
+            }
+        }
+    }
+
+    /// Load the colors of a sprite into a buffer.
+    pub fn getSprite(self: *Self, oam_index: u8, buf: []u8) void {
+        // TODO: support 8x16 mode.
+        std.debug.assert(buf.len == 8 * 8 * 3);
+        var pt_base_addr: u16 = if (self.ppu_ctrl.pattern_sprite) 0x1000 else 0x0000;
+        var tile_index: u16 = self.oam[oam_index * 4 + 1];
+        var attrs: SpriteAttributes = @bitCast(self.oam[oam_index * 4 + 2]);
+        var palette_index = attrs.palette;
+        for (0..8) |pxrow| {
+            var px_row: u16 = @truncate(pxrow);
+            var lo_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row);
+            var hi_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row + 8);
+            for (0..8) |px| {
+                var lo_bit = (lo_byte >> @truncate(px)) & 0b1;
+                var hi_bit = (hi_byte >> @truncate(px)) & 0b1;
+                var color_index = hi_bit << 1 | lo_bit;
+                var addr = fg_palette_base_addr + palette_size * palette_index + color_index;
+                var color_id = self.busRead(addr);
+
+                var color = Palette[color_id];
+
+                var buf_index = (pxrow * 8 + px) * 3;
+                std.debug.assert(buf_index < buf.len);
+                buf[buf_index] = color.r;
+                buf[buf_index + 1] = color.g;
+                buf[buf_index + 2] = color.b;
             }
         }
     }

@@ -10,6 +10,7 @@ const NESConsole = @import("./nes.zig").Console;
 const PatternTableView = views.PatternTableView;
 const PaletteView = views.PaletteView;
 const PrimaryOAMView = views.PrimaryOAMView;
+const TilePreview = views.TilePreview;
 
 const fmt = std.fmt;
 /// TODO: make this a relative path lol.
@@ -90,7 +91,10 @@ pub fn main() !void {
 
     var palette_view = PaletteView.init(emu.ppu);
 
-    var sprite_view = PrimaryOAMView.init(allocator, emu.ppu);
+    var tile_preview = TilePreview.init();
+    defer tile_preview.deinit();
+
+    var sprite_view = PrimaryOAMView.init(allocator, emu.ppu, &tile_preview);
     defer sprite_view.deinit();
 
     while (!rl.WindowShouldClose()) {
@@ -105,6 +109,7 @@ pub fn main() !void {
         if (rl.IsKeyPressed(rl.KeyboardKey.KEY_SPACE)) {
             try emu.ppu.dumpSprites();
             try emu.cpu.dumpRAM();
+            emu.is_paused = !emu.is_paused;
             // try emu.debugTick();
         }
 

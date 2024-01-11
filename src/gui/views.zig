@@ -9,35 +9,31 @@ const Allocator = std.mem.Allocator;
 /// The coordinates of the UI elements.
 pub const UIPositions = struct {
     pub const bg_palette_y = (PPU.ScreenHeight * 2 + 16);
-    pub const pattern_table_y = (PPU.ScreenHeight * 2 + 64);
+    pub const foreground_palette_y = (bg_palette_y + 40);
+    pub const foreground_palette_x = 0;
+    pub const pattern_table_y = foreground_palette_y + 40;
     pub const primary_oam_y = 32;
     pub const primary_oam_scale = 2.5;
     pub const primary_oam_x = PPU.ScreenWidth * 2 + 64;
-    pub const foreground_palette_y = (primary_oam_y + 64 * primary_oam_scale + 64);
-    pub const foreground_palette_x = primary_oam_x;
+    pub const tile_preview_x = PPU.ScreenWidth * 2 + 64;
+    pub const tile_preview_y = PPU.ScreenHeight * 2 + 64;
 };
 
-pub const PrimaryOAMView = struct {
+/// Preview of the tile that the cursor is hovering over.
+pub const TilePreview = struct {
     const Self = @This();
-    ppu: *PPU,
+
+    color_buf: [8 * 8 * 3]u8 = [_]u8{0} ** (8 * 8 * 3),
     texture: rl.Texture2D,
-    allocator: Allocator,
-    oam_buf: [64 * 64]u8 = [_]u8{0} ** (64 * 64),
-    texture_buf: [bufsize]u8 = [_]u8{0} ** bufsize,
 
-    const bufsize: usize = 64 * 64 * 3; // 64 px wide, 64 px tall, 3 bytes per px (RGB).
-
-    pub fn init(allocator: Allocator, ppu: *PPU) Self {
+    pub fn init() Self {
         var self = Self{
-            .ppu = ppu,
-            .allocator = allocator,
             .texture = undefined,
         };
-
         var image = rl.Image{
-            .data = &self.texture_buf,
-            .width = 8 * 8, // 8 sprites per row, 8 pixels per sprite.
-            .height = 8 * 8, // 8 sprites per column, 8 pixels per sprite.
+            .data = &self.color_buf,
+            .width = 8,
+            .height = 8,
             .mipmaps = 1,
             .format = @intFromEnum(rl.rlPixelFormat.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8),
         };
@@ -50,12 +46,92 @@ pub const PrimaryOAMView = struct {
         rl.UnloadTexture(self.texture);
     }
 
+    const scale = 10;
+    const srcScale = rl.Rectangle{ .x = 0, .y = 0, .width = 8, .height = 8 };
+    const dstScale = rl.Rectangle{ .x = 0, .y = 0, .width = 8 * scale, .height = 8 * scale };
+
+    pub fn drawSpriteTile(self: *Self, ppu: *PPU, tile_index: u8) void {
+        ppu.getSprite(tile_index, &self.color_buf);
+        rl.UpdateTexture(self.texture, &self.color_buf);
+        rl.DrawTexturePro(
+            self.texture,
+            srcScale,
+            dstScale,
+            rl.Vector2{
+                .x = -UIPositions.tile_preview_x,
+                .y = -UIPositions.tile_preview_y,
+            },
+            0,
+            rl.WHITE,
+        );
+
+        rl.DrawRectangleLines(
+            UIPositions.tile_preview_x,
+            UIPositions.tile_preview_y,
+            8 * scale,
+            8 * scale,
+            rl.WHITE,
+        );
+    }
+};
+
+pub const PrimaryOAMView = struct {
+    const Self = @This();
+    ppu: *PPU,
+    texture: rl.Texture2D,
+    allocator: Allocator,
+    oam_buf: [64 * 64]u8 = [_]u8{0} ** (64 * 64),
+    texture_buf: [bufsize]u8 = [_]u8{0} ** bufsize,
+
+    // buffer that contains the colors in the texture for the current sprite.
+    current_sprite_texture_buf: [8 * 8 * 3]u8 = [_]u8{0} ** (8 * 8 * 3),
+    current_sprite_texture: rl.Texture2D,
+
+    tile_preview: *TilePreview,
+
+    const bufsize: usize = 64 * 64 * 3; // 64 px wide, 64 px tall, 3 bytes per px (RGB).
+
+    pub fn init(allocator: Allocator, ppu: *PPU, tile_preview: *TilePreview) Self {
+        var self = Self{
+            .ppu = ppu,
+            .allocator = allocator,
+            .texture = undefined,
+            .current_sprite_texture = undefined,
+            .tile_preview = tile_preview,
+        };
+
+        var color_format = @intFromEnum(rl.rlPixelFormat.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8);
+        var oam_preview_image = rl.Image{
+            .data = &self.texture_buf,
+            .width = 8 * 8, // 8 sprites per row, 8 pixels per sprite.
+            .height = 8 * 8, // 8 sprites per column, 8 pixels per sprite.
+            .mipmaps = 1,
+            .format = color_format,
+        };
+        self.texture = rl.LoadTextureFromImage(oam_preview_image);
+
+        var current_sprite_image = rl.Image{
+            .data = &self.current_sprite_texture_buf,
+            .width = 8,
+            .height = 8,
+            .mipmaps = 1,
+            .format = color_format,
+        };
+        self.current_sprite_texture = rl.LoadTextureFromImage(current_sprite_image);
+        return self;
+    }
+
+    pub fn deinit(self: *Self) void {
+        rl.UnloadTexture(self.texture);
+        rl.UnloadTexture(self.current_sprite_texture);
+    }
+
     const scale = UIPositions.primary_oam_scale;
     const srcScale = rl.Rectangle{ .x = 0, .y = 0, .width = 64, .height = 64 };
     const dstScale = rl.Rectangle{ .x = 0, .y = 0, .width = 64 * scale, .height = 64 * scale };
 
     pub fn draw(self: *Self) void {
-        // TODO: suppot 8x16 mode.
+        // TODO: support 8x16 mode.
 
         rl.DrawText(
             "Sprites (OAM):",
@@ -74,18 +150,41 @@ pub const PrimaryOAMView = struct {
             self.texture_buf[i * 3 + 2] = color.b;
         }
 
+        var oam_x: f32 = UIPositions.primary_oam_x;
+        var oam_y: f32 = UIPositions.primary_oam_y + 32;
         rl.UpdateTexture(self.texture, &self.texture_buf);
         rl.DrawTexturePro(
             self.texture,
             srcScale,
             dstScale,
             rl.Vector2{
-                .x = -UIPositions.primary_oam_x,
-                .y = -(UIPositions.primary_oam_y + 32),
+                .x = -oam_x,
+                .y = -oam_y,
             },
             0,
             rl.WHITE,
         );
+
+        // if the cursor is over a sprite, show that tile in a larger view.
+        var mouse_pos = rl.GetMousePosition();
+        var mx = mouse_pos.x;
+        var my = mouse_pos.y;
+
+        if (mx < oam_x or my < oam_y) return;
+        if (mx >= oam_x + dstScale.width or my >= oam_y + dstScale.width) return;
+
+        // find which tile the mouse is on
+        var oam_scale: f32 = scale;
+        var sprite_col = (mx - oam_x) / (8 * oam_scale);
+        var sprite_row = (my - oam_y) / (8 * oam_scale);
+        if (sprite_row < 0.0 or sprite_col < 0.0) return;
+        std.debug.assert(sprite_row < 8.0 and sprite_col < 8.0);
+
+        var sprite_row_u8: u8 = @intCast(@as(i32, @intFromFloat(sprite_row)));
+        var sprite_col_u8: u8 = @intCast(@as(i32, @intFromFloat(sprite_col)));
+        var sprite_index_in_oam = sprite_row_u8 * 8 + sprite_col_u8;
+
+        self.tile_preview.drawSpriteTile(self.ppu, sprite_index_in_oam);
     }
 };
 
@@ -94,6 +193,9 @@ pub const PrimaryOAMView = struct {
 pub const PaletteView = struct {
     const Self = @This();
     ppu: *PPU,
+
+    pub const color_rect_width = 16;
+    pub const color_rect_height = 8;
 
     pub fn init(ppu: *PPU) Self {
         return .{ .ppu = ppu };
@@ -113,7 +215,7 @@ pub const PaletteView = struct {
                 .a = 255,
             };
 
-            rl.DrawRectangle(x + xoff, y, 16, 12, rlColor);
+            rl.DrawRectangle(x + xoff, y, color_rect_width, color_rect_height, rlColor);
             xoff += 16 + 1;
         }
     }
@@ -147,7 +249,7 @@ pub const PaletteView = struct {
         yoff += 20;
         for (0..4) |i| {
             self.drawPalette(false, @truncate(i), x + xoff, y + yoff);
-            yoff += 20;
+            xoff += 70;
         }
     }
 };
