@@ -42,7 +42,7 @@ const reversed_bits = [256]u8{
     0x1f, 0x9f, 0x5f, 0xdf, 0x3f, 0xbf, 0x7f, 0xff,
 };
 
-// Emulator for the NES PPU.
+/// Emulator for the NES PPU.
 pub const PPU = struct {
     pub const ScreenWidth = 256;
     pub const ScreenHeight = 240;
@@ -156,10 +156,6 @@ pub const PPU = struct {
     /// A latch that contains the name table byte for the next tile.
     nametable_byte: u8 = 0,
 
-    /// Internal latch that contains the 2-bit palette index for the next tile (fetched
-    /// from the attribute table).
-    bg_palette_index: u8 = 0,
-
     /// Every 8 cycles, the PPU makes fetches the pattern table data for the next tile,
     /// and stores the data into two internal latches (one for high bit plane, and one for low).
     /// These bytes in these latches are then loaded into shift registers that
@@ -170,17 +166,24 @@ pub const PPU = struct {
     /// https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
     pattern_lo: u8 = 0,
     pattern_hi: u8 = 0,
+    /// Storesthe 2-bit palete index for the next tile.
+    /// This latch is loaded on every 8th visible clock-cycle.
+    bg_palette_latch: u8 = 0,
+    /// Stores the 8-bit attribute byte for the next tile.
+    bg_attr_latch: u8 = 0,
 
     /// Shift registers that hold the pattern table data for the current and next tile.
     /// Every 8 cycles, the data for the next tile is loaded into the upper 8 bits (next_tile).
     pattern_table_shifter_lo: ShiftReg16 = .{},
     pattern_table_shifter_hi: ShiftReg16 = .{},
+    bg_palette_shifter_lo: u8 = 0,
+    bg_palette_shifter_hi: u8 = 0,
 
     /// To access the CHR-ROM (and other possibly data on the cartridge),
     /// The PPU bus is connected to a Mapper on the cartridge.
     mapper: *Mapper,
 
-    /// Internal  latch that stores sprite data for the current scanline.
+    /// Internal latch that stores sprite data for the current scanline.
     fg_sprite_latches: [8]Sprite = .{.{}} ** 8,
 
     const Self = @This();
@@ -237,8 +240,6 @@ pub const PPU = struct {
             self.next_tile = reversed_bits[tile];
         }
     };
-
-    const ShiftReg8 = u8;
 
     /// Flags for the PPUCTRL register.
     pub const FlagCTRL = packed struct {
@@ -368,14 +369,13 @@ pub const PPU = struct {
         return self.busRead(nt_addr);
     }
 
-    /// Fetch the 2-bit palette index for the current tile from the attribute table.
-    /// `vram_addr` (v) register.
+    /// Fetch the 8-bit attribute byte for the tile at the current VRAM address.
     fn fetchAttrTableByte(self: *Self) u8 {
-        var tile_x: u8 = self.vram_addr.coarse_x;
-        var tile_y: u8 = self.vram_addr.coarse_y;
+        var tile_col: u8 = self.vram_addr.coarse_x;
+        var tile_row: u8 = self.vram_addr.coarse_y;
 
-        var at_x: u16 = tile_x / 4;
-        var at_y: u16 = tile_y / 4;
+        var at_col: u16 = tile_col / 4;
+        var at_row: u16 = tile_row / 4;
 
         var nt_number: u16 = self.vram_addr.nametable;
         std.debug.assert(nt_number < 4);
@@ -383,15 +383,11 @@ pub const PPU = struct {
             (nametable_size * nt_number) +
             0x3C0; // each nametable is 960 bytes long.
 
-        var at_addr = at_base_addr + at_y * 8 + at_x;
-        std.debug.assert(at_addr >= at_base_addr and at_addr < at_base_addr + 64);
+        var at_offset = at_row * 8 + at_col;
+        var at_addr = at_base_addr + at_offset;
 
-        // Find the 2-bit palette index for the current tile from within the attribute byte.
-        var shift = (4 * (tile_y % 2) + 2 * (tile_x % 2));
-        std.debug.assert(shift < 8 and shift & 0b1 == 0);
-        var at_byte = self.busRead(at_addr);
-        var palette_index = (at_byte >> @truncate(shift)) & 0b0000_0011;
-        return palette_index;
+        std.debug.assert(at_addr >= at_base_addr and at_addr < at_base_addr + 64);
+        return self.busRead(at_addr);
     }
 
     /// increment the fine and coarse Y based on the current
@@ -437,24 +433,24 @@ pub const PPU = struct {
         self.vram_addr.coarse_x = @truncate(coarse_x);
     }
 
-    /// Fetch the color of the current background pixel.
-    fn fetchBGPixel(self: *Self) u8 {
+    /// Fetch an address to the color of the current background pixel.
+    fn fetchBGPixel(self: *Self) u16 {
         // Fetch the pattern table bits for the current pixel.
         // Use that to select a color from the palette.
-        var lo_bit = self.pattern_table_shifter_lo.lsb();
-        var hi_bit = self.pattern_table_shifter_hi.lsb();
-        var color_index = hi_bit << 1 | lo_bit;
-        var palette_base_addr = bg_palette_base_addr + self.bg_palette_index * palette_size;
-        var color_id = self.busRead(palette_base_addr + color_index);
-        std.debug.assert(color_id < 64);
+        var pt_lo = self.pattern_table_shifter_lo.lsb();
+        var pt_hi = self.pattern_table_shifter_hi.lsb();
+        var color_index = pt_hi << 1 | pt_lo;
 
-        return color_id;
+        var palette_lo = self.bg_palette_shifter_lo & 0b1;
+        var palette_hi = self.bg_palette_shifter_hi & 0b1;
+        var palette_index = palette_hi << 1 | palette_lo;
+        var palette_base_addr = bg_palette_base_addr + palette_index * palette_size;
+        return palette_base_addr + color_index;
     }
 
-    /// Render a pixel to the frame buffer.
+    /// Write a pixel to the frame buffer.
     fn renderPixel(self: *Self) void {
-        var color_id = self.fetchBGPixel();
-        var color = Palette[color_id];
+        var color_addr = self.fetchBGPixel();
         if (self.frame_buffer_pos >= self.frame_buffer.len) {
             var row = self.frame_buffer_pos / 256;
             var col = self.frame_buffer_pos % 256;
@@ -470,7 +466,6 @@ pub const PPU = struct {
             var sprite = self.fg_sprite_latches[i];
             var sprite_x_start = sprite.x_coord;
             var sprite_x_end = @addWithOverflow(sprite_x_start, 8)[0];
-
             var current_x = self.cycle;
             if (current_x >= sprite_x_start and current_x < sprite_x_end) {
                 var lo_bitplane = sprite.pattern_table_lo;
@@ -478,23 +473,16 @@ pub const PPU = struct {
                 var px_coord = current_x - sprite_x_start;
                 var color_hi = (hi_bitplane >> @truncate(7 - px_coord)) & 0b1;
                 var color_lo = (lo_bitplane >> @truncate(7 - px_coord)) & 0b1;
-
                 var color_index: u16 = color_hi << 1 | color_lo;
                 var palette_index: u16 = sprite.attr.palette;
-                var color_id_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
-
                 if (color_index % 4 != 0) {
-                    color_id = self.busRead(color_id_addr);
-                    color = Palette[color_id];
+                    color_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
                 }
             }
         }
 
-        // std.debug.print(
-        // "[SC {}, dot {}, coord({}, {}), coarse-x: {}, coarse-y: {}]\n",
-        // .{ self.current_scanline, self.cycle, row, col, self.vram_addr.coarse_x, self.vram_addr.coarse_y },
-        // );
-
+        var color_id = self.busRead(color_addr);
+        var color = Palette[color_id];
         self.frame_buffer[self.frame_buffer_pos] = color_id;
         var render_buf_index = self.frame_buffer_pos * 3;
         self.render_buffer[render_buf_index] = color.r;
@@ -503,12 +491,25 @@ pub const PPU = struct {
         self.frame_buffer_pos += 1;
     }
 
-    /// Load data from internal registers into the shift registers.
+    /// Load data from internal latches into the two background shift registers that store pattern table data.
+    /// The palette latch is also reloaded. The two 8-bit palette shift registers are not affected.
     /// This function should be called on every visible cycle that is a multiple of 8.
     fn reloadBgRegisters(self: *Self) void {
         self.pattern_table_shifter_lo.nextTile(self.pattern_lo);
         self.pattern_table_shifter_hi.nextTile(self.pattern_hi);
-        // TODO: also load the palette latch
+
+        // Load the 2-bit attribute latch from the 8-bit attribute latch.
+        var tile_col: u8 = self.vram_addr.coarse_x;
+        var tile_row: u8 = self.vram_addr.coarse_y;
+
+        // Find the 2-bit palette index for the current tile from within the 8-bit attribute byte.
+        var y = tile_row % 4;
+        var x = tile_col % 4;
+        var shift = (((y >> 1) & 1) << 1 | ((x >> 1) & 1)) * 2;
+        std.debug.assert(shift < 8 and shift % 2 == 0);
+
+        var palette_index = (self.bg_attr_latch >> @truncate(shift)) & 0b0000_0011;
+        self.bg_palette_latch = palette_index;
     }
 
     /// Shift the background shift registers by one bit.
@@ -519,6 +520,21 @@ pub const PPU = struct {
     fn shiftBgRegsiters(self: *Self) void {
         self.pattern_table_shifter_lo.shift();
         self.pattern_table_shifter_hi.shift();
+        self.bg_palette_shifter_lo = self.bg_palette_shifter_lo >> 1;
+        self.bg_palette_shifter_hi = self.bg_palette_shifter_hi >> 1;
+    }
+
+    /// The PPU has two 8 bit shift registers, and a two 1-bit palette latches.
+    /// The palette index is 2-bit, so each 1-bit latch stores a bit of the palette index.
+    /// Every clock-cycle, the MSB of a shift register is loaded with the bit present in the 1 bit latch.
+    /// Then, as the register shifts to the right, this data is propagated forward.
+    fn loadPaletteShifters(self: *Self) void {
+        var lo = self.bg_palette_shifter_lo;
+        var hi = self.bg_palette_shifter_hi;
+        lo = lo | ((self.bg_palette_latch & 0b01) << 7);
+        hi = hi | ((self.bg_palette_latch & 0b10) << 6);
+        self.bg_palette_shifter_lo = lo;
+        self.bg_palette_shifter_hi = hi;
     }
 
     /// Based on the current sub-cycle, load background tile data
@@ -526,17 +542,17 @@ pub const PPU = struct {
     /// into internal latches or shift registers.
     /// Ref: https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
     fn fetchBgTile(self: *Self, subcycle: u16) void {
+        self.loadPaletteShifters();
         switch (subcycle) {
             // fetch the name table byte.
             2 => self.nametable_byte = self.fetchNameTableByte(),
             // fetch the palette to use for the next tile from the attribute table.
-            4 => self.bg_palette_index = self.fetchAttrTableByte(),
+            4 => self.bg_attr_latch = self.fetchAttrTableByte(),
             // Fetch the low bit plane of the pattern table for the next tile.
             6 => self.pattern_lo = self.fetchPatternTableBG(
                 self.nametable_byte,
                 true,
             ),
-
             // Fetch the high bitplane of the pattern table for the next tile.
             0 => {
                 self.pattern_hi = self.fetchPatternTableBG(
@@ -638,7 +654,6 @@ pub const PPU = struct {
                         // Either we've fully copied the previous sprite into secondary OAM,
                         // or, we failed to find a sprite that is visible on the current scanline,
                         // so, we're looking for the next sprite that is visible on the current scanline.
-
                         var sprite_y: u16 = self.oam_transfer_latch;
                         var current_y = self.current_scanline;
                         var is_visible = sprite_y < current_y and (sprite_y + 8) >= current_y;
@@ -974,9 +989,6 @@ pub const PPU = struct {
             7 => self.writePPUDATA(val), // PPUDATA
             else => unreachable,
         }
-
-        // std.debug.print("PPU register: ${x} <- ${x}\n", .{ register, val });
-        // std.debug.print("v   register: ${x}\n", .{@as(u15, @bitCast(self.vram_addr))});
     }
 
     /// Read a byte of data from one of the PPU registers.
@@ -1040,7 +1052,6 @@ pub const PPU = struct {
         for (0..256) |i| {
             if (i % 16 == 0) {
                 std.debug.print("\n", .{});
-                // std.debug.print("${x:0>4}: ", .{i});
             }
             var byte = self.oam[i];
             if (byte >= 0x20 and byte < 0x7F) {
