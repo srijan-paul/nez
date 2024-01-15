@@ -103,6 +103,7 @@ pub const PPU = struct {
     oam_sprite_index: u8 = 0, // current sprite being evaluated
     oam_attr_index: u8 = 0, // current attribute byte of the sprite^ being evaluated (between 0-4)
     secondary_oam_next_slot: u8 = 0, // next slot in secondary OAM to write to (0 to 32)
+    secondary_oam_sprite_count: u8 = 0, // number of sprites in secondary OAM (0 to 8)
 
     /// The PPU stores a byte of data from primary OAM in this latch on odd cycles.
     /// On even cycles, this latch is copied into the secondary OAM.
@@ -585,17 +586,23 @@ pub const PPU = struct {
         if (!self.ppu_mask.draw_sprites) return;
 
         switch (self.cycle) {
-            1 => {
-                for (0..32) |i| {
-                    self.secondary_oam[i] = 0xFF;
+            1...64 => {
+                // set all bytes in the secondary OAM to 0xFF over the course of 64 cycles.
+                // odd cycles: Read data from primary OAM (this always returns 0xFF because a signal overwrites the data).
+                // even cycles: Write data to secondary OAM.
+                if (self.cycle % 2 == 0) {
+                    var index = self.cycle / 2 - 1;
+                    self.secondary_oam[index] = 0xFF;
                 }
-            },
 
-            64 => {
-                // n = 0, m = 0 (as mentioned in the NES wiki doc linked above).
-                self.oam_sprite_index = 0; // N = 0
-                self.oam_attr_index = 0; // M = 0
-                self.secondary_oam_next_slot = 0;
+                // Reset internal state needed to track the transfer of OAM data from primary to secondary OAM.
+                if (self.cycle == 64) {
+                    // n = 0, m = 0 (as mentioned in the NES wiki doc linked above).
+                    self.oam_sprite_index = 0; // N = 0
+                    self.oam_attr_index = 0; // M = 0
+                    self.secondary_oam_next_slot = 0;
+                    self.secondary_oam_sprite_count = 0;
+                }
             },
 
             65...256 => {
@@ -645,6 +652,7 @@ pub const PPU = struct {
                             self.secondary_oam[self.secondary_oam_next_slot] = self.oam_transfer_latch;
                             self.secondary_oam_next_slot += 1;
                             self.oam_attr_index += 1;
+                            self.secondary_oam_sprite_count += 1;
                         } else {
                             // Go to the next sprite, and check (after 1 cycle), if its
                             // visible on this scanline.
@@ -663,7 +671,8 @@ pub const PPU = struct {
             // 8 cycles are required to fetch each sprite.
             // TODO: do these in a cycle accurate manner, since we're reading from the pattern table.
             257 => {
-                for (0..8) |i| {
+                var i: u8 = 0;
+                while (i < self.secondary_oam_sprite_count) {
                     var secondary_oam_index = i * 4;
                     std.debug.assert(secondary_oam_index <= 28); // 8 sprites * 4 bytes per sprite = 32 bytes
 
@@ -695,6 +704,12 @@ pub const PPU = struct {
                     };
 
                     self.fg_sprite_latches[i] = sprite;
+                    i += 1;
+                }
+
+                while (i < 8) {
+                    self.fg_sprite_latches[i] = .{};
+                    i += 1;
                 }
             },
 
