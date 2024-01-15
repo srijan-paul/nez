@@ -1149,8 +1149,8 @@ pub const PPU = struct {
                 var lo_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row);
                 var hi_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row + 8);
                 for (0..8) |px| {
-                    var lo_bit = (lo_byte >> @truncate(px)) & 0b1;
-                    var hi_bit = (hi_byte >> @truncate(px)) & 0b1;
+                    var lo_bit = (lo_byte >> @truncate(7 - px)) & 0b1;
+                    var hi_bit = (hi_byte >> @truncate(7 - px)) & 0b1;
                     var color_index = hi_bit << 1 | lo_bit;
                     var addr = fg_palette_base_addr + palette_size * palette_index + color_index;
                     var color_id = self.busRead(addr);
@@ -1177,16 +1177,17 @@ pub const PPU = struct {
             var px_row: u16 = @truncate(pxrow);
             var lo_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row);
             var hi_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row + 8);
-            for (0..8) |px| {
-                var lo_bit = (lo_byte >> @truncate(px)) & 0b1;
-                var hi_bit = (hi_byte >> @truncate(px)) & 0b1;
+            for (0..8) |px_| {
+                var pxcol: u8 = @truncate(px_);
+                var lo_bit = (lo_byte >> @truncate(7 - pxcol)) & 0b1;
+                var hi_bit = (hi_byte >> @truncate(7 - pxcol)) & 0b1;
                 var color_index = hi_bit << 1 | lo_bit;
                 var addr = fg_palette_base_addr + palette_size * palette_index + color_index;
                 var color_id = self.busRead(addr);
 
                 var color = Palette[color_id];
 
-                var buf_index = (pxrow * 8 + px) * 3;
+                var buf_index = (pxrow * 8 + pxcol) * 3;
                 std.debug.assert(buf_index < buf.len);
                 buf[buf_index] = color.r;
                 buf[buf_index + 1] = color.g;
