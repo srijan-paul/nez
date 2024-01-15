@@ -100,10 +100,15 @@ pub const PPU = struct {
     // ---------------------
     // ** Internal state needed to track the transfer of OAM data from primary to secondary OAM. **
     // ---------------------
-    oam_sprite_index: u8 = 0, // current sprite being evaluated
-    oam_attr_index: u8 = 0, // current attribute byte of the sprite^ being evaluated (between 0-4)
-    secondary_oam_next_slot: u8 = 0, // next slot in secondary OAM to write to (0 to 32)
-    secondary_oam_sprite_count: u8 = 0, // number of sprites in secondary OAM (0 to 8)
+
+    /// Index of the sprite being evaluated in primary OAM (0-64).
+    oam_sprite_index: u8 = 0,
+    /// Index of an attribute byte within a sprite (in primary OAM) being evaluated (0-3).
+    oam_attr_index: u8 = 0,
+    /// Next free slot in secondary OAM. one of four bytes of a sprite being evaluated is written here.
+    secondary_oam_next_slot: u8 = 0,
+    /// Number of sprites currently present in the secondary OAM. (i.e visible on this scanline)
+    secondary_oam_sprite_count: u8 = 0,
 
     /// The PPU stores a byte of data from primary OAM in this latch on odd cycles.
     /// On even cycles, this latch is copied into the secondary OAM.
@@ -129,8 +134,6 @@ pub const PPU = struct {
     /// I store it like this so its easier to pass it to raylib for rendering
     /// using the PIXELFORMAT_UNCOMPRESSED_R8G8B8.
     render_buffer: [NPixels * 3]u8 = .{0} ** (NPixels * 3),
-
-    palette_attr_next_tile: u8 = 0,
 
     /// This corresponds to the `v` register of the PPU.
     /// Stores the current VRAM address when loading tile and sprite data.
@@ -180,32 +183,33 @@ pub const PPU = struct {
     bg_palette_shifter_lo: u8 = 0,
     bg_palette_shifter_hi: u8 = 0,
 
-    /// To access the CHR-ROM (and other possibly data on the cartridge),
+    /// To access the CHR-ROM (and possibly other data on the cartridge),
     /// The PPU bus is connected to a Mapper on the cartridge.
     mapper: *Mapper,
 
-    /// Internal latch that stores sprite data for the current scanline.
-    fg_sprite_latches: [8]Sprite = .{.{}} ** 8,
+    /// Internal latches that store sprite data for the current scanline.
+    sprites_on_scanline: [8]Sprite = .{.{}} ** 8,
 
     const Self = @This();
 
     /// A Foreground sprite.
-    /// This struct is loaded from PPU memory between cycles 257 and 320.
+    /// This struct is loaded from secondary OAM into sprite latches between cycles 257 and 320.
     const Sprite = struct {
-        y_coord: u8 = 0,
+        x: u8 = 0,
+        y: u8 = 0,
         // lo bitplane of the pattern byte belonging to this sprite.
-        pattern_table_lo: u8 = 0,
+        pattern_lo: u8 = 0,
         // hi bitplane of the pattern byte belonging to this sprite.
-        pattern_table_hi: u8 = 0,
+        pattern_hi: u8 = 0,
         // attributes of the sprite.
         attr: SpriteAttributes = .{},
-        x_coord: u8 = 0,
     };
 
     /// Internal representation of a foreground sprite (8x8)
     const SpriteAttributes = packed struct {
+        /// The palette number to use for this sprite.
         palette: u2 = 0,
-        unused: u3 = 0,
+        __unused: u3 = 0,
         priority: bool = false,
         flip_horz: bool = false,
         flip_vert: bool = false,
@@ -244,15 +248,19 @@ pub const PPU = struct {
 
     /// Flags for the PPUCTRL register.
     pub const FlagCTRL = packed struct {
-        // selects one out of 4 name tables.
-        // 0: $2000; 1: $2400; 2: $2800; 3: $2C00
+        /// selects one out of 4 name tables.
+        /// 0: $2000; 1: $2400; 2: $2800; 3: $2C00
         nametable_number: u2 = 0,
-        // 0: add 1; 1: add 32
+        /// 0: add 1; 1: add 32
         increment_mode_32: bool = false,
+        /// The pattern table to use for drawing sprites. (0 = left; 1 = right)
         pattern_sprite: bool = false,
+        /// The pattern table to use for drawing the background. (0 = left; 1 = right)
         pattern_background: bool = false,
+        /// 0: 8x8; 1: 8x16
         sprite_is_8x16: bool = false,
         slave_mode: bool = false,
+        /// If set, the PPU will trigger an NMI when it enters VBLANK.
         generate_nmi: bool = false,
     };
 
@@ -277,7 +285,7 @@ pub const PPU = struct {
     };
 
     /// The internal `t` and `v` registers have
-    /// there bits arranged like this:
+    /// their bits arranged like this:
     pub const VRamAddr = packed struct {
         coarse_x: u5 = 0,
         coarse_y: u5 = 0,
@@ -303,17 +311,8 @@ pub const PPU = struct {
     /// `row`: The row of the tile to fetch (0-7)
     fn fetchFromPatternTable(self: *Self, addr: u16, is_low_plane: bool, pt_number: u1, row: u8) u8 {
         std.debug.assert(row < 8);
-        // TODO: this function is marked `pub`, and can be used by the emulator to display
-        // debug data. Make sure this doesn't mess up mappers that can detect reads.
-        var pt_addr =
-            (@as(u16, pt_number) * 0x1000) +
-            (addr * 16) +
-            row;
-
-        return if (is_low_plane)
-            self.busRead(pt_addr)
-        else
-            self.busRead(pt_addr + 8);
+        var pt_addr = (@as(u16, pt_number) * 0x1000) + (addr * 16) + row;
+        return if (is_low_plane) self.busRead(pt_addr) else self.busRead(pt_addr + 8);
     }
 
     /// Fetch a byte of data from the pattern table for background use.
@@ -374,8 +373,7 @@ pub const PPU = struct {
         return self.busRead(at_addr);
     }
 
-    /// increment the fine and coarse Y based on the current
-    /// clock cycle.
+    /// Increment the fine and coarse Y based on the current clock cycle.
     fn incrY(self: *Self) void {
         var fine_y: u8 = self.vram_addr.fine_y;
         var coarse_y: u8 = self.vram_addr.coarse_y;
@@ -403,7 +401,7 @@ pub const PPU = struct {
     }
 
     /// Increment the coarse X based on the current clock cycle.
-    /// Once we're past the last tile, we wrap to the next tile of the
+    /// Once we're past the last tile, we wrap to the first tile of the
     /// next nametable.
     fn incrCoarseX(self: *Self) void {
         var coarse_x: u8 = self.vram_addr.coarse_x;
@@ -447,13 +445,13 @@ pub const PPU = struct {
         // Visit all the sprite latches and see if any of the sprites in
         // there should be drawn on top of the background.
         for (0..8) |i| {
-            var sprite = self.fg_sprite_latches[i];
-            var sprite_x_start = sprite.x_coord;
+            var sprite = self.sprites_on_scanline[i];
+            var sprite_x_start = sprite.x;
             var sprite_x_end = @addWithOverflow(sprite_x_start, 8)[0];
             var current_x = self.cycle;
             if (current_x >= sprite_x_start and current_x < sprite_x_end) {
-                var lo_bitplane = sprite.pattern_table_lo;
-                var hi_bitplane = sprite.pattern_table_hi;
+                var lo_bitplane = sprite.pattern_lo;
+                var hi_bitplane = sprite.pattern_hi;
                 var pxcol = current_x - sprite_x_start;
                 var color_hi = (hi_bitplane >> @truncate(7 - pxcol)) & 0b1;
                 var color_lo = (lo_bitplane >> @truncate(7 - pxcol)) & 0b1;
@@ -526,6 +524,8 @@ pub const PPU = struct {
     /// into internal latches or shift registers.
     /// Ref: https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
     fn fetchBgTile(self: *Self, subcycle: u16) void {
+        std.debug.assert(subcycle < 8);
+        // On every clock cycle, copy the background palette latches into palette shift registers.
         self.loadPaletteShifters();
         switch (subcycle) {
             // fetch the name table byte.
@@ -561,7 +561,7 @@ pub const PPU = struct {
         self.renderPixel();
         // shift the background registers by one bit.
         self.shiftBgRegsiters();
-        // Fetch the attribute/PT/NT data for the next tile.
+        // Fetch the AT/PT/NT data for the next tile.
         self.fetchBgTile(subcycle);
     }
 
@@ -666,20 +666,20 @@ pub const PPU = struct {
                 }
             },
 
-            // The PPU fetches sprites for the next scanline.
+            // The PPU fetches sprites for the next scanline. Copying the data from secondary OAM to
+            // internal sprite latches.
             // 8 sprites are fetched in cycles [257, 320].
             // 8 cycles are required to fetch each sprite.
             // TODO: do these in a cycle accurate manner, since we're reading from the pattern table.
             257 => {
                 var i: u8 = 0;
                 while (i < self.secondary_oam_sprite_count) {
-                    var secondary_oam_index = i * 4;
-                    std.debug.assert(secondary_oam_index <= 28); // 8 sprites * 4 bytes per sprite = 32 bytes
-
-                    var sprite_y = self.secondary_oam[secondary_oam_index];
-                    var tile_index = self.secondary_oam[secondary_oam_index + 1];
-                    var attrs: SpriteAttributes = @bitCast(self.secondary_oam[secondary_oam_index + 2]);
-                    var sprite_x = self.secondary_oam[secondary_oam_index + 3];
+                    std.debug.assert(i <= 7);
+                    var j = i * 4; // each sprite is 4 bytes long.
+                    var sprite_y = self.secondary_oam[j];
+                    var tile_index = self.secondary_oam[j + 1];
+                    var attrs: SpriteAttributes = @bitCast(self.secondary_oam[j + 2]);
+                    var sprite_x = self.secondary_oam[j + 3];
 
                     std.debug.assert(self.current_scanline - sprite_y < 8);
                     var row: u8 = @truncate(self.current_scanline - sprite_y);
@@ -696,19 +696,19 @@ pub const PPU = struct {
                     }
 
                     var sprite: Sprite = .{
-                        .y_coord = sprite_y,
-                        .pattern_table_lo = pt_lo,
-                        .pattern_table_hi = pt_hi,
+                        .y = sprite_y,
+                        .x = sprite_x,
+                        .pattern_lo = pt_lo,
+                        .pattern_hi = pt_hi,
                         .attr = attrs,
-                        .x_coord = sprite_x,
                     };
 
-                    self.fg_sprite_latches[i] = sprite;
+                    self.sprites_on_scanline[i] = sprite;
                     i += 1;
                 }
 
                 while (i < 8) {
-                    self.fg_sprite_latches[i] = .{};
+                    self.sprites_on_scanline[i] = .{};
                     i += 1;
                 }
             },
