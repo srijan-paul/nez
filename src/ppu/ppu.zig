@@ -299,21 +299,15 @@ pub const PPU = struct {
     ///
     /// `pt_number`: 0 if we're fetching from the PT at $0000, 1 if we're using the one at $1000
     ///
-    /// `fine_y`: The fine-y scroll value (0-7). This is used to select the row of the tile to fetch.
-    /// This argument is generally set to `self.vram_addr.fine_y` (3 bits from the `v` register).
-    pub fn fetchFromPatternTable(
-        self: *Self,
-        addr: u16,
-        is_low_plane: bool,
-        pt_number: u1,
-    ) u8 {
+    /// `row`: The row of the tile to fetch (0-7)
+    fn fetchFromPatternTable(self: *Self, addr: u16, is_low_plane: bool, pt_number: u1, row: u8) u8 {
+        std.debug.assert(row < 8);
         // TODO: this function is marked `pub`, and can be used by the emulator to display
         // debug data. Make sure this doesn't mess up mappers that can detect reads.
-        var fine_y: u16 = self.vram_addr.fine_y;
         var pt_addr =
             (@as(u16, pt_number) * 0x1000) +
             (addr * 16) +
-            fine_y;
+            row;
 
         return if (is_low_plane)
             self.busRead(pt_addr)
@@ -328,13 +322,8 @@ pub const PPU = struct {
     ///
     /// `is_low_plane`: `true` if we're fetching a byte from the low-bitplane of the tile.
     fn fetchPatternTableBG(self: *Self, addr: u16, is_low_plane: bool) u8 {
-        var pt_number: u1 =
-            if (self.ppu_ctrl.pattern_background) 1 else 0;
-        return self.fetchFromPatternTable(
-            addr,
-            is_low_plane,
-            pt_number,
-        );
+        var pt_number: u1 = if (self.ppu_ctrl.pattern_background) 1 else 0;
+        return self.fetchFromPatternTable(addr, is_low_plane, pt_number, self.vram_addr.fine_y);
     }
 
     /// Fetch a byte of data from the pattern table for foreground use.
@@ -343,15 +332,9 @@ pub const PPU = struct {
     /// `addr`: Index of the tile to fetch from within the pattern table (0-256)
     ///
     /// `is_low_plane`: `true` if we're fetching a byte from the low-bitplane of the tile.
-    fn fetchPatternTableFG(self: *Self, addr: u16, is_low_plane: bool) u8 {
-        var pt_number: u1 =
-            if (self.ppu_ctrl.pattern_sprite) 1 else 0;
-
-        return self.fetchFromPatternTable(
-            addr,
-            is_low_plane,
-            pt_number,
-        );
+    fn fetchSpritePattern(self: *Self, addr: u16, is_low_plane: bool, row: u8) u8 {
+        var pt_number: u1 = if (self.ppu_ctrl.pattern_sprite) 1 else 0;
+        return self.fetchFromPatternTable(addr, is_low_plane, pt_number, row);
     }
 
     /// Fetch the next byte from the name table.
@@ -470,9 +453,9 @@ pub const PPU = struct {
             if (current_x >= sprite_x_start and current_x < sprite_x_end) {
                 var lo_bitplane = sprite.pattern_table_lo;
                 var hi_bitplane = sprite.pattern_table_hi;
-                var px_coord = current_x - sprite_x_start;
-                var color_hi = (hi_bitplane >> @truncate(7 - px_coord)) & 0b1;
-                var color_lo = (lo_bitplane >> @truncate(7 - px_coord)) & 0b1;
+                var pxcol = current_x - sprite_x_start;
+                var color_hi = (hi_bitplane >> @truncate(7 - pxcol)) & 0b1;
+                var color_lo = (lo_bitplane >> @truncate(7 - pxcol)) & 0b1;
                 var color_index: u16 = color_hi << 1 | color_lo;
                 var palette_index: u16 = sprite.attr.palette;
                 if (color_index % 4 != 0) {
@@ -656,10 +639,9 @@ pub const PPU = struct {
                         // so, we're looking for the next sprite that is visible on the current scanline.
                         var sprite_y: u16 = self.oam_transfer_latch;
                         var current_y = self.current_scanline;
-                        var is_visible = sprite_y < current_y and (sprite_y + 8) >= current_y;
+                        var is_visible = sprite_y <= current_y and (sprite_y + 8) > current_y;
                         if (is_visible) {
                             // The sprite is visible on the current scanline. Copy the rest of its bytes
-
                             self.secondary_oam[self.secondary_oam_next_slot] = self.oam_transfer_latch;
                             self.secondary_oam_next_slot += 1;
                             self.oam_attr_index += 1;
@@ -681,27 +663,38 @@ pub const PPU = struct {
             // 8 cycles are required to fetch each sprite.
             // TODO: do these in a cycle accurate manner, since we're reading from the pattern table.
             257 => {
-                var secondary_oam_index: usize = 0;
                 for (0..8) |i| {
+                    var secondary_oam_index = i * 4;
+                    std.debug.assert(secondary_oam_index <= 28); // 8 sprites * 4 bytes per sprite = 32 bytes
+
                     var sprite_y = self.secondary_oam[secondary_oam_index];
                     var tile_index = self.secondary_oam[secondary_oam_index + 1];
-                    var attrs = self.secondary_oam[secondary_oam_index + 2];
+                    var attrs: SpriteAttributes = @bitCast(self.secondary_oam[secondary_oam_index + 2]);
                     var sprite_x = self.secondary_oam[secondary_oam_index + 3];
 
-                    var pt_lo = self.fetchPatternTableFG(tile_index, true);
-                    var pt_hi = self.fetchPatternTableFG(tile_index, false);
+                    std.debug.assert(self.current_scanline - sprite_y < 8);
+                    var row: u8 = @truncate(self.current_scanline - sprite_y);
+                    if (attrs.flip_vert) {
+                        row = 7 - row;
+                    }
+
+                    var pt_lo = self.fetchSpritePattern(tile_index, true, row);
+                    var pt_hi = self.fetchSpritePattern(tile_index, false, row);
+
+                    if (attrs.flip_horz) {
+                        pt_lo = reversed_bits[pt_lo];
+                        pt_hi = reversed_bits[pt_hi];
+                    }
 
                     var sprite: Sprite = .{
                         .y_coord = sprite_y,
                         .pattern_table_lo = pt_lo,
                         .pattern_table_hi = pt_hi,
-                        .attr = @bitCast(attrs),
+                        .attr = attrs,
                         .x_coord = sprite_x,
                     };
 
                     self.fg_sprite_latches[i] = sprite;
-                    secondary_oam_index += 4;
-                    std.debug.assert(secondary_oam_index <= 32);
                 }
             },
 
