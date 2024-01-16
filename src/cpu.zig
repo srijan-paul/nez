@@ -262,14 +262,18 @@ pub const CPU = struct {
 
     /// Perform a branch if `cond` is true.
     fn branchIf(self: *Self, cond: bool) void {
-        // TODO: check for extra cycles when crossing pages.
-        // and when branch is successful.
         if (cond) {
+            self.cycles_to_wait += 1;
+
             // jump offset is signed.
             var offset: i8 = @bitCast(self.nextOp());
             var old_pc: i32 = self.PC;
             var new_pc: u32 = @bitCast(old_pc + offset);
             self.PC = @truncate(new_pc);
+            // if the branch jumps to a new page, add an extra cycle.
+            if (old_pc & 0xFF00 != new_pc & 0xFF00) {
+                self.cycles_to_wait += 1;
+            }
         } else {
             self.incPC();
         }
@@ -374,6 +378,10 @@ pub const CPU = struct {
                 } else {
                     var dst = self.addrOfInstruction(instr);
                     var byte = self.memRead(dst);
+                    // Peculiar behavior of R-M-W (Read modify write) instructions.
+                    // The value is written as-is first, and then the modified value is written.
+                    // Emulating this is sometimes important, because the mapper might respond differently to these writes.
+                    self.memWrite(dst, byte);
                     self.memWrite(dst, self.asl(byte));
                 }
             },
@@ -452,6 +460,9 @@ pub const CPU = struct {
                 var byte = self.memRead(dst_addr);
                 var res = @subWithOverflow(byte, 1)[0];
                 self.setZN(res);
+                // Peculiar behavior of R-M-W instructions.
+                // The value is written as-is first, and then the modified value is written.
+                self.memWrite(dst_addr, byte);
                 self.memWrite(dst_addr, res);
             },
 
@@ -478,6 +489,9 @@ pub const CPU = struct {
                 var byte = self.memRead(dst);
                 var res = @addWithOverflow(byte, 1)[0];
                 self.setZN(res);
+                // Peculiar behavior of R-M-W instructions.
+                // The value is written as-is first, and then the modified value is written.
+                self.memWrite(dst, byte);
                 self.memWrite(dst, res);
             },
 
@@ -554,6 +568,9 @@ pub const CPU = struct {
                     self.StatusRegister.C = (byte & 0b0000_0001) == 1;
                     var res = byte >> 1;
                     self.setZN(res);
+                    // Peculiar behavior of R-M-W (Read modify write) instructions.
+                    // The value is written as-is first, and then the modified value is written.
+                    self.memWrite(dst, byte);
                     self.memWrite(dst, res);
                 }
             },
@@ -600,6 +617,9 @@ pub const CPU = struct {
                     var dst = self.addrOfInstruction(instr);
                     var byte = self.memRead(dst);
                     var res = self.rol(byte);
+                    // Peculiar behavior of R-M-W (Read modify write) instructions.
+                    // The value is written as-is first, and then the modified value is written.
+                    self.memWrite(dst, byte);
                     self.memWrite(dst, res);
                 }
             },
@@ -611,6 +631,9 @@ pub const CPU = struct {
                     var dst = self.addrOfInstruction(instr);
                     var byte = self.memRead(dst);
                     var res = self.ror(byte);
+                    // Peculiar behavior of R-M-W (Read modify write) instructions.
+                    // The value is written as-is first, and then the modified value is written.
+                    self.memWrite(dst, byte);
                     self.memWrite(dst, res);
                 }
             },
@@ -687,10 +710,10 @@ pub const CPU = struct {
 
     /// Trigger a non-maskable interrupt.
     fn triggerNMI(self: *Self) void {
-        // push the PCH, PCL, and P on to the stack.
+        // push the PC high byte, PC low byte, and status register on to the stack.
         self.push(@truncate(self.PC >> 8)); // high byte
         self.push(@truncate(self.PC)); // low byte
-        self.push(@bitCast(self.StatusRegister));
+        self.push(@bitCast(self.StatusRegister)); // status
 
         // NMIs cannot be interrupted
         self.StatusRegister.I = true;
