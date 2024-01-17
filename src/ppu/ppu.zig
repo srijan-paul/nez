@@ -444,6 +444,7 @@ pub const PPU = struct {
 
         // Visit all the sprite latches and see if any of the sprites in
         // there should be drawn on top of the background.
+        // Ref: https://www.nesdev.org/wiki/PPU_sprite_priority
         for (0..8) |i| {
             var sprite = self.sprites_on_scanline[i];
             var sprite_x_start = sprite.x;
@@ -455,11 +456,19 @@ pub const PPU = struct {
                 var pxcol = current_x - sprite_x_start;
                 var color_hi = (hi_bitplane >> @truncate(7 - pxcol)) & 0b1;
                 var color_lo = (lo_bitplane >> @truncate(7 - pxcol)) & 0b1;
+
+                // index of the color inside a palette (0-4)
                 var color_index: u16 = color_hi << 1 | color_lo;
-                var palette_index: u16 = sprite.attr.palette;
-                if (color_index % 4 != 0) {
+                // The sprite pixel only gets drawn on top of the background pixel if:
+                // 1. The sprite pixel is opaque (i.e not color 0, 4, 8, 12), AND has front priority.
+                // 2. The background pixel is transparent (i.e color 0, 4, 8, 12 in the background palette).
+                var is_sprite_px_opaque = color_index % 4 != 0;
+                var is_bg_transparent = (color_addr - bg_palette_base_addr) % 4 == 0;
+                if ((is_sprite_px_opaque and sprite.attr.priority) or is_bg_transparent) {
+                    var palette_index: u16 = sprite.attr.palette;
                     color_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
                 }
+                break;
             }
         }
 
