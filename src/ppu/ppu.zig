@@ -464,7 +464,7 @@ pub const PPU = struct {
                 // 2. The background pixel is transparent (i.e color 0, 4, 8, 12 in the background palette).
                 var is_sprite_px_opaque = color_index % 4 != 0;
                 var is_bg_transparent = (color_addr - bg_palette_base_addr) % 4 == 0;
-                if ((is_sprite_px_opaque and sprite.attr.priority) or is_bg_transparent) {
+                if (is_sprite_px_opaque and (sprite.attr.priority or is_bg_transparent)) {
                     var palette_index: u16 = sprite.attr.palette;
                     color_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
                 }
@@ -939,20 +939,24 @@ pub const PPU = struct {
         return data;
     }
 
-    pub fn busWrite(self: *Self, addr: u16, value: u8) void {
-        // TODO: mirroring.
-        if (addr < 0x2000) {
-            return self.mapper.ppuWrite(addr, value);
-        }
+    pub fn busWrite(self: *Self, address: u16, value: u8) void {
+        var addr = address; // parameters are immutable in Zig -_-
+        if (addr < 0x2000) return self.mapper.ppuWrite(addr, value);
 
+        if (addr >= 0x3000 and addr < 0x3F00) addr -= 0x1000;
+        if (addr >= 0x3F20 and addr < 0x4000) addr -= 0x20;
         self.ppu_ram[addr] = value;
     }
 
-    fn busRead(self: *Self, addr: u16) u8 {
-        if (addr < 0x2000) {
-            return self.mapper.ppuRead(addr);
-        }
-        // TODO: mirroring
+    fn busRead(self: *Self, address: u16) u8 {
+        var addr = address; // parameters are immutable in Zig -_-
+        if (addr < 0x2000) return self.mapper.ppuRead(addr);
+
+        // TODO: verify mirroring impl
+        // $3000 - $3FEFF mirrors $2000 - $2EFF
+        // $3F20 - $3FFF mirrors $3F00 - $3F1F
+        if (addr >= 0x3000 and addr < 0x3F00) addr -= 0x1000;
+        if (addr >= 0x3F20 and addr < 0x4000) addr -= 0x20;
         return self.ppu_ram[addr];
     }
 
