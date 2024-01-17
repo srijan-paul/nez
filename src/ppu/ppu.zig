@@ -210,7 +210,7 @@ pub const PPU = struct {
         /// The palette number to use for this sprite.
         palette: u2 = 0,
         __unused: u3 = 0,
-        priority: bool = false,
+        is_behind_bg: bool = false,
         flip_horz: bool = false,
         flip_vert: bool = false,
 
@@ -463,8 +463,9 @@ pub const PPU = struct {
                 // 1. The sprite pixel is opaque (i.e not color 0, 4, 8, 12), AND has front priority.
                 // 2. The background pixel is transparent (i.e color 0, 4, 8, 12 in the background palette).
                 var is_sprite_px_opaque = color_index % 4 != 0;
+                var is_sprite_fg = !sprite.attr.is_behind_bg;
                 var is_bg_transparent = (color_addr - bg_palette_base_addr) % 4 == 0;
-                if (is_sprite_px_opaque and (sprite.attr.priority or is_bg_transparent)) {
+                if (is_sprite_px_opaque and (is_sprite_fg or is_bg_transparent)) {
                     var palette_index: u16 = sprite.attr.palette;
                     color_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
                 }
