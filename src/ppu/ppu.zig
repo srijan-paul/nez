@@ -940,24 +940,33 @@ pub const PPU = struct {
         return data;
     }
 
-    pub fn busWrite(self: *Self, address: u16, value: u8) void {
+    fn busWrite(self: *Self, address: u16, value: u8) void {
         var addr = address; // parameters are immutable in Zig -_-
         if (addr < 0x2000) return self.mapper.ppuWrite(addr, value);
 
         if (addr >= 0x3000 and addr < 0x3F00) addr -= 0x1000;
         if (addr >= 0x3F20 and addr < 0x4000) addr -= 0x20;
+
+        // universal transparent color mirroring.
+        if (addr >= bg_palette_base_addr and (addr - bg_palette_base_addr) % 4 == 0) {
+            addr = bg_palette_base_addr;
+        }
+
         self.ppu_ram[addr] = value;
     }
 
     fn busRead(self: *Self, address: u16) u8 {
         var addr = address; // parameters are immutable in Zig -_-
         if (addr < 0x2000) return self.mapper.ppuRead(addr);
-
-        // TODO: verify mirroring impl
+        // TODO: verify mirroring impl with the wiki.
         // $3000 - $3FEFF mirrors $2000 - $2EFF
         // $3F20 - $3FFF mirrors $3F00 - $3F1F
         if (addr >= 0x3000 and addr < 0x3F00) addr -= 0x1000;
         if (addr >= 0x3F20 and addr < 0x4000) addr -= 0x20;
+        // universal transparent color mirroring.
+        if (addr >= bg_palette_base_addr and (addr - bg_palette_base_addr) % 4 == 0) {
+            addr = bg_palette_base_addr;
+        }
         return self.ppu_ram[addr];
     }
 
