@@ -97,22 +97,10 @@ pub const PPU = struct {
     /// Therefore, secondary OAM is 32 bytes long (8 sprites * 4 bytes for each sprite).
     secondary_oam: [32]u8 = [_]u8{0} ** 32,
 
-    // ---------------------
-    // ** Internal state needed to track the transfer of OAM data from primary to secondary OAM. **
-    // ---------------------
-
-    /// Index of the sprite being evaluated in primary OAM (0-64).
-    oam_sprite_index: u8 = 0,
-    /// Index of an attribute byte within a sprite (in primary OAM) being evaluated (0-3).
-    oam_attr_index: u8 = 0,
-    /// Next free slot in secondary OAM. one of four bytes of a sprite being evaluated is written here.
-    secondary_oam_next_slot: u8 = 0,
-    /// Number of sprites currently present in the secondary OAM. (i.e visible on this scanline)
-    secondary_oam_sprite_count: u8 = 0,
-
-    /// The PPU stores a byte of data from primary OAM in this latch on odd cycles.
-    /// On even cycles, this latch is copied into the secondary OAM.
-    oam_transfer_latch: u8 = 0,
+    /// Number of sprites currently present in the secondary OAM and sprite latches.
+    num_sprites_on_scanline: u8 = 0,
+    /// `true` if the current scanline has sprite 0 in it.
+    scanline_has_sprite0: bool = false,
 
     // We want the PPU to start on the pre-render scanline.
     // So the scanline and dot are set to 260, and 240 respectively.
@@ -197,11 +185,11 @@ pub const PPU = struct {
     const Sprite = struct {
         x: u8 = 0,
         y: u8 = 0,
-        // lo bitplane of the pattern byte belonging to this sprite.
+        /// lo bitplane of the pattern byte belonging to this sprite.
         pattern_lo: u8 = 0,
-        // hi bitplane of the pattern byte belonging to this sprite.
+        /// hi bitplane of the pattern byte belonging to this sprite.
         pattern_hi: u8 = 0,
-        // attributes of the sprite.
+        /// Attributes of the sprite.
         attr: SpriteAttributes = .{},
     };
 
@@ -445,7 +433,7 @@ pub const PPU = struct {
         // Visit all the sprite latches and see if any of the sprites in
         // there should be drawn on top of the background.
         // Ref: https://www.nesdev.org/wiki/PPU_sprite_priority
-        for (0..8) |i| {
+        for (0..self.num_sprites_on_scanline) |i| {
             var sprite = self.sprites_on_scanline[i];
             var sprite_x_start = sprite.x;
             var sprite_x_end = @addWithOverflow(sprite_x_start, 8)[0];
@@ -465,10 +453,17 @@ pub const PPU = struct {
                 var is_sprite_px_opaque = color_index % 4 != 0;
                 var is_sprite_fg = !sprite.attr.is_behind_bg;
                 var is_bg_transparent = (color_addr - bg_palette_base_addr) % 4 == 0;
+
                 if (is_sprite_px_opaque and (is_sprite_fg or is_bg_transparent)) {
                     var palette_index: u16 = sprite.attr.palette;
                     color_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
+                    // If opaque pixel of sprite#0 from OAM overlaps opaque pixel of background,
+                    // set the sprite 0 hit flag.
+                    if (i == 0 and self.scanline_has_sprite0 and !is_bg_transparent) {
+                        self.ppu_status.sprite_zero_hit = true;
+                    }
                 }
+
                 break;
             }
         }
@@ -590,140 +585,81 @@ pub const PPU = struct {
             (self.vram_addr.nametable & 0b10) | (self.t.nametable & 0b01);
     }
 
+    /// copy the first 8 sprites on current scanline from primary OAM to secondary OAM.
+    fn copySpritesToSecondaryOAM(self: *Self) void {
+        var num_sprites: u8 = 0;
+        for (0..64) |sprite_index| {
+            // If we've already found 8 sprites, stop copying.
+            if (num_sprites >= 8) break;
+
+            var oam_index = 4 * sprite_index;
+            var y: u16 = self.oam[oam_index];
+            var screen_y = self.current_scanline;
+
+            var is_visible_on_line = y <= screen_y and (y + 8) > screen_y;
+            if (!is_visible_on_line) continue;
+
+            // Does this scanline contain the 0th sprite from OAM?
+            // (will be useful later to calculate the sprite zero hit flag)
+            if (sprite_index == 0) self.scanline_has_sprite0 = true;
+
+            // Since the sprite is visible on this scanline, copy all its bytes to secondary OAM.
+            // Later, the pattern table bytes for these sprites will be loaded into the sprite latches.
+            for (0..4) |attr_index| {
+                self.secondary_oam[4 * num_sprites + attr_index] = self.oam[oam_index + attr_index];
+            }
+            num_sprites += 1;
+        }
+
+        self.num_sprites_on_scanline = num_sprites;
+    }
+
     /// Sprite evaluation that occurrs on every dot of a visible scanline.
     /// Ref: https://www.nesdev.org/wiki/PPU_sprite_evaluation
     fn spriteEval(self: *Self) void {
         if (!self.ppu_mask.draw_sprites) return;
 
-        switch (self.cycle) {
-            1...64 => {
-                // set all bytes in the secondary OAM to 0xFF over the course of 64 cycles.
-                // odd cycles: Read data from primary OAM (this always returns 0xFF because a signal overwrites the data).
-                // even cycles: Write data to secondary OAM.
-                if (self.cycle % 2 == 0) {
-                    var index = self.cycle / 2 - 1;
-                    self.secondary_oam[index] = 0xFF;
+        if (self.cycle == 1) {
+            for (0..32) |i| self.secondary_oam[i] = 0xFF;
+        }
+
+        // This should happen between scanlines 64 and 256, but I do it all at once on dot-64.
+        if (self.cycle == 64) self.copySpritesToSecondaryOAM();
+
+        // TODO: should I do these in a cycle accurate manner, since we're reading from the pattern table?
+        if (self.cycle == 257) {
+            for (0..self.num_sprites_on_scanline) |i| {
+                std.debug.assert(i <= 7);
+                var j = i * 4; // each sprite is 4 bytes long.
+                var sprite_y = self.secondary_oam[j];
+                var tile_index = self.secondary_oam[j + 1];
+                var attrs: SpriteAttributes = @bitCast(self.secondary_oam[j + 2]);
+                var sprite_x = self.secondary_oam[j + 3];
+
+                std.debug.assert(self.current_scanline - sprite_y < 8);
+                var row: u8 = @truncate(self.current_scanline - sprite_y);
+                if (attrs.flip_vert) {
+                    row = 7 - row;
                 }
 
-                // Reset internal state needed to track the transfer of OAM data from primary to secondary OAM.
-                if (self.cycle == 64) {
-                    // n = 0, m = 0 (as mentioned in the NES wiki doc linked above).
-                    self.oam_sprite_index = 0; // N = 0
-                    self.oam_attr_index = 0; // M = 0
-                    self.secondary_oam_next_slot = 0;
-                    self.secondary_oam_sprite_count = 0;
-                }
-            },
+                var pt_lo = self.fetchSpritePattern(tile_index, true, row);
+                var pt_hi = self.fetchSpritePattern(tile_index, false, row);
 
-            65...256 => {
-                if (self.oam_attr_index == 4) {
-                    // We've copied all 4 bytes of the current sprite into secondary OAM.
-                    // Go to the next sprite.
-                    self.oam_sprite_index += 1;
-                    self.oam_attr_index = 0;
+                if (attrs.flip_horz) {
+                    pt_lo = reversed_bits[pt_lo];
+                    pt_hi = reversed_bits[pt_hi];
                 }
 
-                if (self.oam_sprite_index > 63) {
-                    // We've copied all 64 sprites into secondary OAM.
-                    // We're done with sprite evaluation.
-                    // TODO: do we still need to perform some operations here? (IDK)
-                    return;
-                }
+                var sprite: Sprite = .{
+                    .y = sprite_y,
+                    .x = sprite_x,
+                    .pattern_lo = pt_lo,
+                    .pattern_hi = pt_hi,
+                    .attr = attrs,
+                };
 
-                if (self.secondary_oam_next_slot == 32) {
-                    // We've filled up all 8 sprites of secondary OAM. (Each sprites is 4 bytes)
-                    return;
-                }
-
-                // sanity checks to avoid OOB access.
-                std.debug.assert(self.oam_attr_index < 4);
-                std.debug.assert(self.oam_sprite_index < 64);
-                std.debug.assert(self.secondary_oam_next_slot < 32);
-
-                if (self.cycle % 2 == 1) {
-                    // on odd cycles, read data from primary OAM
-                    var byte_addr = 4 * self.oam_sprite_index + self.oam_attr_index;
-                    self.oam_transfer_latch = self.oam[byte_addr];
-                } else {
-                    // If the PPU found a sprite that is visible on the current scanline
-                    // in a previous cycle, then it will copy the remaining bytes of that sprite
-                    // in the current cycle.
-                    // Otherwise, it will check the Y-coordinate of the next sprite in primary OAM,
-                    // and copy that to secondary OAM if it overlaps the current scanline.
-                    if (self.oam_attr_index == 0) {
-                        // Either we've fully copied the previous sprite into secondary OAM,
-                        // or, we failed to find a sprite that is visible on the current scanline,
-                        // so, we're looking for the next sprite that is visible on the current scanline.
-                        var sprite_y: u16 = self.oam_transfer_latch;
-                        var current_y = self.current_scanline;
-                        var is_visible = sprite_y <= current_y and (sprite_y + 8) > current_y;
-                        if (is_visible) {
-                            // The sprite is visible on the current scanline. Copy the rest of its bytes
-                            self.secondary_oam[self.secondary_oam_next_slot] = self.oam_transfer_latch;
-                            self.secondary_oam_next_slot += 1;
-                            self.oam_attr_index += 1;
-                            self.secondary_oam_sprite_count += 1;
-                        } else {
-                            // Go to the next sprite, and check (after 1 cycle), if its
-                            // visible on this scanline.
-                            self.oam_sprite_index += 1;
-                        }
-                    } else {
-                        self.secondary_oam[self.secondary_oam_next_slot] = self.oam_transfer_latch;
-                        self.secondary_oam_next_slot += 1;
-                        self.oam_attr_index += 1;
-                    }
-                }
-            },
-
-            // The PPU fetches sprites for the next scanline. Copying the data from secondary OAM to
-            // internal sprite latches.
-            // 8 sprites are fetched in cycles [257, 320].
-            // 8 cycles are required to fetch each sprite.
-            // TODO: do these in a cycle accurate manner, since we're reading from the pattern table.
-            257 => {
-                var i: u8 = 0;
-                while (i < self.secondary_oam_sprite_count) {
-                    std.debug.assert(i <= 7);
-                    var j = i * 4; // each sprite is 4 bytes long.
-                    var sprite_y = self.secondary_oam[j];
-                    var tile_index = self.secondary_oam[j + 1];
-                    var attrs: SpriteAttributes = @bitCast(self.secondary_oam[j + 2]);
-                    var sprite_x = self.secondary_oam[j + 3];
-
-                    std.debug.assert(self.current_scanline - sprite_y < 8);
-                    var row: u8 = @truncate(self.current_scanline - sprite_y);
-                    if (attrs.flip_vert) {
-                        row = 7 - row;
-                    }
-
-                    var pt_lo = self.fetchSpritePattern(tile_index, true, row);
-                    var pt_hi = self.fetchSpritePattern(tile_index, false, row);
-
-                    if (attrs.flip_horz) {
-                        pt_lo = reversed_bits[pt_lo];
-                        pt_hi = reversed_bits[pt_hi];
-                    }
-
-                    var sprite: Sprite = .{
-                        .y = sprite_y,
-                        .x = sprite_x,
-                        .pattern_lo = pt_lo,
-                        .pattern_hi = pt_hi,
-                        .attr = attrs,
-                    };
-
-                    self.sprites_on_scanline[i] = sprite;
-                    i += 1;
-                }
-
-                while (i < 8) {
-                    self.sprites_on_scanline[i] = .{};
-                    i += 1;
-                }
-            },
-
-            else => {},
+                self.sprites_on_scanline[i] = sprite;
+            }
         }
     }
 
@@ -751,12 +687,13 @@ pub const PPU = struct {
             return;
         }
 
-        if (is_prerender_line and
-            self.cycle >= 280 and
-            self.cycle <= 304 and
-            draw_bg)
-        {
-            self.resetVert();
+        if (is_prerender_line) {
+            if (self.cycle == 1) {
+                self.ppu_status.sprite_zero_hit = false;
+                self.scanline_has_sprite0 = false;
+            } else if (self.cycle >= 280 and self.cycle <= 304 and draw_bg) {
+                self.resetVert();
+            }
         }
 
         // OAMADDR is zeroed out on dots 257-320 of pre-render and visible scanlines.
