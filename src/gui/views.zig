@@ -6,17 +6,92 @@ const PPU = ppu_module.PPU;
 const PPUPalette = ppu_module.Palette;
 const Allocator = std.mem.Allocator;
 
-/// The coordinates of the UI elements.
+/// The X/Y coordinates of the UI elements.
 pub const UIPositions = struct {
-    pub const bg_palette_y = (PPU.ScreenHeight * 2 + 16);
+    pub const screen_x = 0;
+    pub const screen_y = 0;
+    pub const screen_width = PPU.ScreenWidth * 2;
+    pub const screen_height = PPU.ScreenHeight * 2;
+
+    pub const bg_palette_y = (screen_width + 16);
     pub const foreground_palette_y = (bg_palette_y + 40);
     pub const foreground_palette_x = 0;
     pub const pattern_table_y = foreground_palette_y + 40;
     pub const primary_oam_y = 32;
     pub const primary_oam_scale = 2.5;
-    pub const primary_oam_x = PPU.ScreenWidth * 2 + 64;
-    pub const tile_preview_x = PPU.ScreenWidth * 2 + 64;
-    pub const tile_preview_y = PPU.ScreenHeight * 2 + 64;
+    pub const primary_oam_x = screen_width + 64;
+
+    pub const tile_preview_x = screen_width + 64;
+    pub const tile_preview_y = screen_height + 64;
+
+    pub const tile_coords_x = primary_oam_x;
+    pub const tile_coords_y = screen_height + 64 + 80;
+};
+
+pub const Screen = struct {
+    const Self = @This();
+    const scale = struct {
+        // zig doesn't have static local vars,
+        // but I can use a local struct for the same purpose.
+        const src = rl.Rectangle{
+            .x = 0,
+            .y = 0,
+            .width = PPU.ScreenWidth,
+            .height = PPU.ScreenHeight,
+        };
+
+        const dst = rl.Rectangle{
+            .x = 0,
+            .y = 0,
+            .width = UIPositions.screen_width,
+            .height = UIPositions.screen_height,
+        };
+    };
+
+    ppu: *PPU,
+    texture: rl.Texture2D,
+    allocator: Allocator,
+
+    /// Initialize the screen view.
+    pub fn init(ppu: *PPU, allocator: Allocator) Self {
+        var screen_img_data = rl.Image{
+            .data = &ppu.render_buffer,
+            .width = PPU.ScreenWidth,
+            .height = PPU.ScreenHeight,
+            .mipmaps = 1,
+            .format = @intFromEnum(rl.rlPixelFormat.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8),
+        };
+        var texture = rl.LoadTextureFromImage(screen_img_data);
+        return .{ .ppu = ppu, .texture = texture, .allocator = allocator };
+    }
+
+    pub fn draw(self: *Self) !void {
+        var topleft = rl.Vector2{ .x = 0, .y = 0 };
+        rl.UpdateTexture(self.texture, &self.ppu.render_buffer);
+        rl.DrawTexturePro(self.texture, scale.src, scale.dst, topleft, 0, rl.WHITE);
+
+        var mx: f32 = @floatFromInt(rl.GetMouseX());
+        var my: f32 = @floatFromInt(rl.GetMouseY());
+        if (mx < scale.dst.width and my < scale.dst.height) {
+            var tile_x: i32 = @intFromFloat(mx / (8 * 2));
+            var tile_y: i32 = @intFromFloat(my / (8 * 2));
+
+            var buf = try std.fmt.allocPrintZ(self.allocator, "Tile: {}, {}", .{ tile_y, tile_x });
+            defer self.allocator.free(buf);
+
+            rl.DrawText(
+                buf,
+                UIPositions.tile_coords_x,
+                UIPositions.tile_coords_y,
+                16,
+                rl.WHITE,
+            );
+        }
+    }
+
+    pub fn deinit(self: *Self) void {
+        rl.UnloadTexture(self.texture);
+    }
 };
 
 /// Preview of the tile that the cursor is hovering over.

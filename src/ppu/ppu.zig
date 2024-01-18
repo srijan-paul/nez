@@ -90,11 +90,10 @@ pub const PPU = struct {
     oam_addr: u8 = 0, // $2003
     oam_data: u8 = 0, // $2004
     oam_dma: u8 = 0, // $4014
-    // Stores the sprite data for 64 sprites.
+    /// Stores the sprite data for 64 sprites. Each sprite is 4 bytes.
     oam: [256]u8 = [_]u8{0} ** 256,
     /// Secondary OAM stores the sprites for the current scanline (for upto 8 sprites).
     /// Each sprite uses 4 bytes (Y-pos, PT tile-index, attributes, X-pos).
-    /// Therefore, secondary OAM is 32 bytes long (8 sprites * 4 bytes for each sprite).
     secondary_oam: [32]u8 = [_]u8{0} ** 32,
 
     /// Number of sprites currently present in the secondary OAM and sprite latches.
@@ -290,16 +289,16 @@ pub const PPU = struct {
 
     /// Fetch a byte of data from one of the two pattern tables.
     ///
-    /// `addr`: Address of the tile to fetch (0-256)
+    /// `tile`: index of the tile to fetch (0-255)
     ///
     /// `is_low_plane`: `true` if we're fetching the low bitplane.
     ///
     /// `pt_number`: 0 if we're fetching from the PT at $0000, 1 if we're using the one at $1000
     ///
     /// `row`: The row of the tile to fetch (0-7)
-    fn fetchFromPatternTable(self: *Self, addr: u16, is_low_plane: bool, pt_number: u1, row: u8) u8 {
+    fn fetchFromPatternTable(self: *Self, tile: u16, is_low_plane: bool, pt_number: u1, row: u8) u8 {
         std.debug.assert(row < 8);
-        var pt_addr = (@as(u16, pt_number) * 0x1000) + (addr * 16) + row;
+        var pt_addr = (@as(u16, pt_number) * 0x1000) + (tile * 16) + row;
         return if (is_low_plane) self.busRead(pt_addr) else self.busRead(pt_addr + 8);
     }
 
@@ -365,18 +364,18 @@ pub const PPU = struct {
     fn incrY(self: *Self) void {
         var fine_y: u8 = self.vram_addr.fine_y;
         var coarse_y: u8 = self.vram_addr.coarse_y;
-        if (fine_y == std.math.maxInt(@TypeOf(self.vram_addr.fine_y))) {
+        if (fine_y == 7) {
             // reset fine-y to 0, now that we're on the first pixel of the next tile.
             fine_y = 0;
             if (coarse_y == 29) {
                 // If we were on the last tile of current scanline,
                 // wrap back to first tile of next scanline.
                 coarse_y = 0;
+                // goto next vertical nametable. (0 -> 2, 1 -> 3)
+                self.vram_addr.nametable ^= 0b10;
             } else if (coarse_y == 31) {
                 // I don't fully understand this part yet.
                 coarse_y = 0;
-                // goto next vertical nametable. (0 -> 2, 1 -> 3)
-                self.vram_addr.nametable ^= 0b10;
             } else {
                 coarse_y += 1;
             }
@@ -433,17 +432,15 @@ pub const PPU = struct {
         // Visit all the sprite latches and see if any of the sprites in
         // there should be drawn on top of the background.
         // Ref: https://www.nesdev.org/wiki/PPU_sprite_priority
-        for (0..self.num_sprites_on_scanline) |i| {
+        for (0..8) |i| {
             var sprite = self.sprites_on_scanline[i];
             var sprite_x_start = sprite.x;
             var sprite_x_end = @addWithOverflow(sprite_x_start, 8)[0];
             var current_x = self.cycle;
             if (current_x >= sprite_x_start and current_x < sprite_x_end) {
-                var lo_bitplane = sprite.pattern_lo;
-                var hi_bitplane = sprite.pattern_hi;
-                var pxcol = current_x - sprite_x_start;
-                var color_hi = (hi_bitplane >> @truncate(7 - pxcol)) & 0b1;
-                var color_lo = (lo_bitplane >> @truncate(7 - pxcol)) & 0b1;
+                var px = current_x - sprite_x_start;
+                var color_hi = (sprite.pattern_hi >> @truncate(7 - px)) & 0b1;
+                var color_lo = (sprite.pattern_lo >> @truncate(7 - px)) & 0b1;
 
                 // index of the color inside a palette (0-4)
                 var color_index: u16 = color_hi << 1 | color_lo;
@@ -459,12 +456,13 @@ pub const PPU = struct {
                     color_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
                     // If opaque pixel of sprite#0 from OAM overlaps opaque pixel of background,
                     // set the sprite 0 hit flag.
-                    if (i == 0 and self.scanline_has_sprite0 and !is_bg_transparent) {
+                    if (i == 0 and self.scanline_has_sprite0 and
+                        !is_bg_transparent and i < self.num_sprites_on_scanline)
+                    {
                         self.ppu_status.sprite_zero_hit = true;
                     }
+                    break;
                 }
-
-                break;
             }
         }
 
@@ -659,6 +657,10 @@ pub const PPU = struct {
                 };
 
                 self.sprites_on_scanline[i] = sprite;
+            }
+
+            for (self.num_sprites_on_scanline..8) |i| {
+                self.sprites_on_scanline[i] = .{};
             }
         }
     }

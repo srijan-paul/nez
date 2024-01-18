@@ -62,7 +62,7 @@ pub fn main() !void {
 
     var registerWin = gui.Window.new(allocator, "CPU State", 0, 0, 160, 240);
 
-    var emu = try NESConsole.fromROMFile(allocator, "./roms/dk.nes");
+    var emu = try NESConsole.fromROMFile(allocator, "./roms/pacman.nes");
     defer emu.deinit();
 
     emu.powerOn();
@@ -75,16 +75,9 @@ pub fn main() !void {
     try registerWin.addLabel("Status", 16, 152, 56, 24);
 
     var then: u64 = @intCast(std.time.milliTimestamp());
-    var screen_img_data = rl.Image{
-        .data = &emu.ppu.render_buffer,
-        .width = PPU.ScreenWidth,
-        .height = PPU.ScreenHeight,
-        .mipmaps = 1,
-        .format = @intFromEnum(rl.rlPixelFormat.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8),
-    };
 
-    var tex = rl.LoadTextureFromImage(screen_img_data);
-    defer rl.UnloadTexture(tex);
+    var screen = views.Screen.init(emu.ppu, allocator);
+    defer screen.deinit();
 
     var pt_view = try PatternTableView.init(allocator);
     defer pt_view.deinit();
@@ -113,7 +106,7 @@ pub fn main() !void {
             // try emu.debugTick();
         }
 
-        drawNesScreen(emu.ppu, &tex);
+        try screen.draw();
         pt_view.draw(emu.ppu, 0);
         pt_view.draw(emu.ppu, 1);
         palette_view.drawBackgroundPalettes();
