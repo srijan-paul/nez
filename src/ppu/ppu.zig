@@ -456,7 +456,6 @@ pub const PPU = struct {
                 if (is_sprite_px_opaque and (is_sprite_fg or is_bg_transparent)) {
                     var palette_index: u16 = sprite.attr.palette;
                     var sprite_color_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
-
                     return sprite_color_addr;
                 }
             }
@@ -900,13 +899,15 @@ pub const PPU = struct {
         var addr = address; // parameters are immutable in Zig -_-
         if (addr < 0x2000) return self.mapper.ppuWrite(addr, value);
 
-        if (addr >= 0x3000 and addr < 0x3F00) addr -= 0x1000;
-        if (addr >= 0x3F20 and addr < 0x4000) addr -= 0x20;
-
-        // universal transparent color mirroring.
-        if (addr >= bg_palette_base_addr and (addr - bg_palette_base_addr) % 4 == 0) {
-            addr = bg_palette_base_addr;
+        if (addr >= 0x3000 and addr < 0x3F00) {
+            addr = addr - 0x1000;
+        } else if (addr >= 0x3F20 and addr < 0x4000) {
+            addr = 0x3F00 + (addr - 0x3F20) % 0x20;
         }
+
+        // 0x3F10/0x3F14/0x3F18/0x3F1C -> 0x3F00/0x3F04/0x3F08/0x3F0C.
+        if (addr >= 0x3F10 and (addr - 0x3F00) % 4 == 0)
+            addr -= 0x10;
 
         self.ppu_ram[addr] = value;
     }
@@ -914,15 +915,15 @@ pub const PPU = struct {
     fn busRead(self: *Self, address: u16) u8 {
         var addr = address; // parameters are immutable in Zig -_-
         if (addr < 0x2000) return self.mapper.ppuRead(addr);
-        // TODO: verify mirroring impl with the wiki.
-        // $3000 - $3FEFF mirrors $2000 - $2EFF
-        // $3F20 - $3FFF mirrors $3F00 - $3F1F
-        if (addr >= 0x3000 and addr < 0x3F00) addr -= 0x1000;
-        if (addr >= 0x3F20 and addr < 0x4000) addr -= 0x20;
-        // universal transparent color mirroring.
-        if (addr >= bg_palette_base_addr and (addr - bg_palette_base_addr) % 4 == 0) {
-            addr = bg_palette_base_addr;
+
+        if (addr >= 0x3000 and addr < 0x3F00) {
+            addr = addr - 0x1000;
+        } else if (addr >= 0x3F20 and addr < 0x4000) {
+            addr = 0x3F00 + (addr - 0x3F20) % 0x20;
         }
+
+        if (addr >= 0x3F00 and (addr - 0x3F00) % 4 == 0) addr = 0x3F00;
+
         return self.ppu_ram[addr];
     }
 
