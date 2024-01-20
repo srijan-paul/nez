@@ -78,13 +78,16 @@ pub const PPU = struct {
     /// The only reason I'm allocating 64kB is because it's easier to
     /// directly use PPU memory addresses as indices into this buffer.
     ppu_ram: [0x10000]u8 = [_]u8{0} ** 0x10000,
-
     ppu_ctrl: FlagCTRL = .{},
     ppu_mask: FlagMask = .{},
-
-    // NOTE: reading from this register resets the address latch.
-    // read-only
+    // NOTE: reading from this register resets the address latch. Read only
     ppu_status: FlagStatus = .{},
+
+    /// Reads from PPUDATA are delayed by one CPU read.
+    /// When the CPU reads from PPUDATA, the PPU stores the value
+    /// that was read from the PPU bus in this latch,
+    /// and returns the value in the latch on the next CPU read.
+    ppu_data_latch: u8 = 0,
 
     // OAM registers and memory.
     oam_addr: u8 = 0, // $2003
@@ -111,11 +114,9 @@ pub const PPU = struct {
     /// Current position inside the frame buffer.
     /// This depends on the current scanline and cycle.
     frame_buffer_pos: usize = 0,
-
     /// A 256x240 1D array of color IDs that is filled in dot-by-dot by the CPU.
     /// A color ID is an index into the 64-color palette of the NES.
     frame_buffer: [NPixels]u8 = .{0} ** NPixels,
-
     /// The actual buffer that should be drawn to the screen every frame by raylib.
     /// Note that this is stored in R8G8B8 format (24 bits-per-pixel).
     /// I store it like this so its easier to pass it to raylib for rendering
@@ -417,18 +418,9 @@ pub const PPU = struct {
         return palette_base_addr + color_index;
     }
 
-    /// Write a pixel to the frame buffer.
-    fn renderPixel(self: *Self) void {
-        var color_addr = self.fetchBGPixel();
-        if (self.frame_buffer_pos >= self.frame_buffer.len) {
-            var row = self.frame_buffer_pos / 256;
-            var col = self.frame_buffer_pos % 256;
-            std.debug.panic(
-                "Frame buffer overflow at SC {}, dot {}, coord({}, {})\n",
-                .{ self.current_scanline, self.cycle, row, col },
-            );
-        }
-
+    /// Return the address of the color of the current sprite pixel.
+    /// If no sprite pixel is found, return the address of the background pixel.
+    fn fetchSpritePixel(self: *Self, bg_color_addr: u16) u16 {
         // Visit all the sprite latches and see if any of the sprites in
         // there should be drawn on top of the background.
         // Ref: https://www.nesdev.org/wiki/PPU_sprite_priority
@@ -449,25 +441,42 @@ pub const PPU = struct {
                 // 2. The background pixel is transparent (i.e color 0, 4, 8, 12 in the background palette).
                 var is_sprite_px_opaque = color_index % 4 != 0;
                 var is_sprite_fg = !sprite.attr.is_behind_bg;
-                var is_bg_transparent = (color_addr - bg_palette_base_addr) % 4 == 0;
+                var is_bg_transparent = (bg_color_addr - bg_palette_base_addr) % 4 == 0;
+
+                // Sprite zero hit: https://www.nesdev.org/wiki/PPU_OAM#Sprite_zero_hits
+                // This happens regardless of sprite priority.
+                if (i == 0 and // sprite 0 is always in the first latch.
+                    i < self.num_sprites_on_scanline and
+                    self.scanline_has_sprite0 and
+                    !is_bg_transparent)
+                {
+                    self.ppu_status.sprite_zero_hit = true;
+                }
 
                 if (is_sprite_px_opaque and (is_sprite_fg or is_bg_transparent)) {
                     var palette_index: u16 = sprite.attr.palette;
-                    color_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
-                    // If opaque pixel of sprite#0 from OAM overlaps opaque pixel of background,
-                    // set the sprite 0 hit flag.
-                    if (i == 0 and self.scanline_has_sprite0 and
-                        !is_bg_transparent and i < self.num_sprites_on_scanline)
-                    {
-                        self.ppu_status.sprite_zero_hit = true;
-                    }
-                    break;
+                    var sprite_color_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
+
+                    return sprite_color_addr;
                 }
             }
         }
 
+        // if no sprite pixel could be found, return the background color.
+        return bg_color_addr;
+    }
+
+    /// Write a pixel to the frame buffer.
+    fn renderPixel(self: *Self) void {
+        var color_addr = self.fetchBGPixel();
+        if (self.ppu_mask.draw_sprites) {
+            color_addr = self.fetchSpritePixel(color_addr);
+        }
+
         var color_id = self.busRead(color_addr);
         var color = Palette[color_id];
+
+        std.debug.assert(self.frame_buffer_pos < self.frame_buffer.len);
         self.frame_buffer[self.frame_buffer_pos] = color_id;
         var render_buf_index = self.frame_buffer_pos * 3;
         self.render_buffer[render_buf_index] = color.r;
@@ -872,7 +881,15 @@ pub const PPU = struct {
     /// Reading from PPUDATA register reads from PPUADDR.
     fn readPPUDATA(self: *Self) u8 {
         var addr: u15 = @bitCast(self.vram_addr);
-        var data = self.busRead(addr);
+
+        var data = self.ppu_data_latch;
+        self.ppu_data_latch = self.busRead(addr);
+
+        if (addr >= 0x3F00) {
+            // Reading from palette RAM is instant.
+            data = self.ppu_data_latch;
+        }
+
         var addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
         addr = @addWithOverflow(addr, addr_increment)[0];
         self.vram_addr = @bitCast(addr);
