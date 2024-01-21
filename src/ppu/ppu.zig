@@ -407,12 +407,13 @@ pub const PPU = struct {
     fn fetchBGPixel(self: *Self) u16 {
         // Fetch the pattern table bits for the current pixel.
         // Use that to select a color from the palette.
-        var pt_lo = self.pattern_table_shifter_lo.lsb();
-        var pt_hi = self.pattern_table_shifter_hi.lsb();
+        var fine_x: u3 = @truncate(self.fine_x);
+        var pt_lo = (self.pattern_table_shifter_lo.curr_tile >> fine_x) & 0b1;
+        var pt_hi = (self.pattern_table_shifter_hi.curr_tile >> fine_x) & 0b1;
         var color_index = pt_hi << 1 | pt_lo;
 
-        var palette_lo = self.bg_palette_shifter_lo & 0b1;
-        var palette_hi = self.bg_palette_shifter_hi & 0b1;
+        var palette_lo = (self.bg_palette_shifter_lo >> fine_x) & 0b1;
+        var palette_hi = (self.bg_palette_shifter_hi >> fine_x) & 0b1;
         var palette_index = palette_hi << 1 | palette_lo;
         var palette_base_addr = bg_palette_base_addr + palette_index * palette_size;
         return palette_base_addr + color_index;
