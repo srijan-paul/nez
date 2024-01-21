@@ -505,6 +505,21 @@ pub const PPU = struct {
         self.bg_palette_latch = palette_index;
     }
 
+    pub fn dumpShifters(self: *Self) void {
+        var colors: [16]u8 = undefined;
+        var lo_shifter: ShiftReg16 = self.pattern_table_shifter_lo;
+        var hi_shifter: ShiftReg16 = self.pattern_table_shifter_hi;
+        for (0..16) |i| {
+            var lo_bit = lo_shifter.lsb();
+            var hi_bit = hi_shifter.lsb();
+            var c = hi_bit << 1 | lo_bit;
+            colors[15 - i] = c;
+            lo_shifter.shift();
+            hi_shifter.shift();
+        }
+        std.debug.print("shifters: {any}\n", .{colors});
+    }
+
     /// Shift the background shift registers by one bit.
     /// ------------------------------------------------
     /// The NES contains shift registers that store pattern table data for background tiles.
@@ -544,16 +559,10 @@ pub const PPU = struct {
             // fetch the palette to use for the next tile from the attribute table.
             4 => self.bg_attr_latch = self.fetchAttrTableByte(),
             // Fetch the low bit plane of the pattern table for the next tile.
-            6 => self.pattern_lo = self.fetchPatternTableBG(
-                self.nametable_byte,
-                true,
-            ),
+            6 => self.pattern_lo = self.fetchPatternTableBG(self.nametable_byte, true),
             // Fetch the high bitplane of the pattern table for the next tile.
             0 => {
-                self.pattern_hi = self.fetchPatternTableBG(
-                    self.nametable_byte,
-                    false,
-                );
+                self.pattern_hi = self.fetchPatternTableBG(self.nametable_byte, false);
                 // On every (8*N)th clock cycle, load the background shifters with
                 // tile data for the next tile.
                 self.reloadBgRegisters();
@@ -568,12 +577,12 @@ pub const PPU = struct {
     /// in scanlines 0 to 240 (inclusive).
     /// This should *not* be called for the pre-render scanline.
     fn visibleDot(self: *Self, subcycle: u16) void {
+        // Fetch the AT/PT/NT data for the next tile.
+        self.fetchBgTile(subcycle);
         // On every visible dot of a visible scanline, render a pixel.
         self.renderPixel();
         // shift the background registers by one bit.
         self.shiftBgRegsiters();
-        // Fetch the AT/PT/NT data for the next tile.
-        self.fetchBgTile(subcycle);
     }
 
     /// Copy the vertical bits from the `t` register into the `v` register.
@@ -629,10 +638,11 @@ pub const PPU = struct {
             for (0..32) |i| self.secondary_oam[i] = 0xFF;
         }
 
-        // This should happen between scanlines 64 and 256, but I do it all at once on dot-64.
+        // This should happen between cycles 64 and 256, but I do it all at once on dot-64.
         if (self.cycle == 64) self.copySpritesToSecondaryOAM();
 
         // TODO: should I do these in a cycle accurate manner, since we're reading from the pattern table?
+        // Use sprite data from secondary OAM to fill sprites latches.
         if (self.cycle == 257) {
             for (0..self.num_sprites_on_scanline) |i| {
                 std.debug.assert(i <= 7);
@@ -725,7 +735,6 @@ pub const PPU = struct {
             // On these dots, one pixel is rendered to the screen.
             1...255 => {
                 if (draw_bg) {
-                    // TODO: check draw_sprites
                     self.visibleDot(subcycle);
                 }
             },
@@ -905,7 +914,7 @@ pub const PPU = struct {
             addr = 0x3F00 + (addr - 0x3F20) % 0x20;
         }
 
-        // 0x3F10/0x3F14/0x3F18/0x3F1C -> 0x3F00/0x3F04/0x3F08/0x3F0C.
+        // 0x3F10/0x3F14/0x3F18/0x3F1C mirrors 0x3F00/0x3F04/0x3F08/0x3F0C.
         if (addr >= 0x3F10 and (addr - 0x3F00) % 4 == 0)
             addr -= 0x10;
 

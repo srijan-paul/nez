@@ -72,8 +72,8 @@ To run the CPU tests, use `zig test src/cpu.zig`.
 ## TODO
 
 - [x] Support vertical scrolling
-- [ ] Sprite overflow detection
-- [ ] Support horizontal scrolling
+- [x] Sprite zero hit
+- [x] Support horizontal scrolling
 - [ ] Support split scrolling
 - [ ] Add support for the controller
 - [ ] Support more mappers
@@ -83,6 +83,7 @@ To run the CPU tests, use `zig test src/cpu.zig`.
     - [ ] MMC3
     - [ ] MMC5
 - [ ] Add support for the APU.
+- [ ] Sprite overflow detection (very few games use this feature so not that high priority)
 
 ## Motivation
 
