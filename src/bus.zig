@@ -2,6 +2,7 @@ const Cart = @import("./cart.zig").Cart;
 const mapper_mod = @import("./mappers/mapper.zig");
 const NROM = @import("./mappers/nrom.zig").NROM;
 const std = @import("std");
+const Gamepad = @import("./gamepad.zig");
 
 const PPU = @import("./ppu/ppu.zig").PPU;
 const MapperKind = mapper_mod.MapperKind;
@@ -69,6 +70,7 @@ pub const NESBus = struct {
     ppu: *PPU,
     cart: *Cart,
     allocator: Allocator,
+    controller: *Gamepad,
 
     // holds a reference to the CPU's 0x800 bytes of RAM.
     ram: [w_ram_size]u8 = .{0} ** w_ram_size,
@@ -79,31 +81,27 @@ pub const NESBus = struct {
         return switch (addr) {
             0...0x1FFF => self.ram[addr % w_ram_size],
             0x2000...0x3FFF => self.ppu.readRegister(addr),
-            0x4000...0x4017 => 0, // TODO
-            0x4018...0x401F => 0, // TODO
+            0x4000...0x4015 => 0, // TODO
+            0x4016 => self.controller.read(),
+            0x4017...0x401F => 0, // TODO
             else => self.mapper.read(addr),
         };
     }
 
     fn busWrite(i_bus: *Bus, addr: u16, val: u8) void {
         var self = @fieldParentPtr(Self, "bus", i_bus);
-        if (false) {
-            if (addr == 0x2007) {
-
-                // var addr_latch: u16 = @as(u15, @bitCast(self.ppu.vram_addr));
-                // std.debug.print("(PPUDATA) PPU[{x}] <- {x}\n", .{ addr_latch, val });
-            } else if (addr == 0x2006) {
-                std.debug.print("w: {x}\n", .{@as(u8, if (self.ppu.is_first_write) 0 else 1)});
-                std.debug.print("(PPUADDR) _ <- {x}\n", .{val});
-            }
-        }
-
         switch (addr) {
             0...0x1FFF => self.ram[addr % w_ram_size] = val,
             0x2000...0x3FFF => self.ppu.writeRegister(addr, val),
             0x4000...0x4017 => {
                 if (addr == 0x4014) {
                     self.ppu.writeOAMDMA(val);
+                    return;
+                }
+
+                if (addr == 0x4016) {
+                    self.controller.write(val);
+                    return;
                 }
                 // TODO: APU, controller I/O.
             },
@@ -133,7 +131,7 @@ pub const NESBus = struct {
 
     /// Create a new Bus.
     /// Both `cart` and `ppu` are non-owning pointers.
-    pub fn init(allocator: Allocator, cart: *Cart, ppu: *PPU) !Self {
+    pub fn init(allocator: Allocator, cart: *Cart, ppu: *PPU, controller: *Gamepad) !Self {
         return .{
             .allocator = allocator,
             .cart = cart,
@@ -144,6 +142,7 @@ pub const NESBus = struct {
                 .nmiPendingFn = isNMIPending,
             },
             .mapper = try createMapper(allocator, cart, ppu),
+            .controller = controller,
         };
     }
 

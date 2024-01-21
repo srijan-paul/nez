@@ -6,6 +6,7 @@ const std = @import("std");
 const PPU = @import("./ppu/ppu.zig").PPU;
 const PPUPalette = @import("./ppu/ppu.zig").Palette;
 const NESConsole = @import("./nes.zig").Console;
+const Gamepad = @import("./gamepad.zig");
 
 const PatternTableView = views.PatternTableView;
 const PaletteView = views.PaletteView;
@@ -13,82 +14,116 @@ const PrimaryOAMView = views.PrimaryOAMView;
 const TilePreview = views.TilePreview;
 
 const fmt = std.fmt;
-/// TODO: make this a relative path lol.
-const style = "/Users/srijan-paul/personal/zig/zig-out/bin/style_cyber.rgs";
 const Allocator = std.mem.Allocator;
 
-/// Render the NES screen to the window.
-pub fn drawNesScreen(ppu: *PPU, ppu_texture: *rl.Texture2D) void {
-    const scale = struct {
-        // zig doesn't have static local vars,
-        // but I can use a local struct for the same purpose.
-        const src = rl.Rectangle{
-            .x = 0,
-            .y = 0,
-            .width = PPU.ScreenWidth,
-            .height = PPU.ScreenHeight,
-        };
-
-        const dst = rl.Rectangle{
-            .x = 0,
-            .y = 0,
-            .width = PPU.ScreenWidth * 2,
-            .height = PPU.ScreenHeight * 2,
-        };
-    };
-
-    rl.UpdateTexture(ppu_texture.*, &ppu.render_buffer);
-    rl.DrawTexturePro(
-        ppu_texture.*,
-        scale.src,
-        scale.dst,
-        rl.Vector2{ .x = 0, .y = 0 },
-        0,
-        rl.WHITE,
-    );
+const Button = Gamepad.Button;
+fn readGamepad(pad: *Gamepad) void {
+    var buttons: [8]bool = undefined;
+    buttons[@intFromEnum(Button.A)] = rl.IsKeyDown(rl.KeyboardKey.KEY_Q);
+    buttons[@intFromEnum(Button.B)] = rl.IsKeyDown(rl.KeyboardKey.KEY_E);
+    buttons[@intFromEnum(Button.Start)] = rl.IsKeyDown(rl.KeyboardKey.KEY_ENTER);
+    buttons[@intFromEnum(Button.Select)] = rl.IsKeyDown(rl.KeyboardKey.KEY_X);
+    buttons[@intFromEnum(Button.Up)] = rl.IsKeyDown(rl.KeyboardKey.KEY_UP);
+    buttons[@intFromEnum(Button.Down)] = rl.IsKeyDown(rl.KeyboardKey.KEY_DOWN);
+    buttons[@intFromEnum(Button.Left)] = rl.IsKeyDown(rl.KeyboardKey.KEY_LEFT);
+    buttons[@intFromEnum(Button.Right)] = rl.IsKeyDown(rl.KeyboardKey.KEY_RIGHT);
+    pad.setInputs(buttons);
 }
 
+const debugFlag = "--debug";
+
+const DebugView = struct {
+    const Self = @This();
+    registerWin: gui.Window,
+    allocator: Allocator,
+    pt_view: PatternTableView,
+    palette_view: PaletteView,
+    tile_preview: TilePreview,
+    sprite_view: PrimaryOAMView,
+    ppu: *PPU,
+    emu: *NESConsole,
+
+    pub fn init(allocator: Allocator, emu: *NESConsole) !Self {
+        var self: Self = undefined;
+        self.allocator = allocator;
+        self.registerWin = gui.Window.new(allocator, "CPU State", 0, 0, 160, 240);
+        try self.registerWin.addLabel("A", 88, 56, 24, 24);
+        try self.registerWin.addLabel("X", 16, 32, 24, 24);
+        try self.registerWin.addLabel("Y", 16, 56, 24, 24);
+        try self.registerWin.addLabel("S", 88, 32, 24, 24);
+        try self.registerWin.addLabel("PC", 16, 104, 30, 24);
+        try self.registerWin.addLabel("Status", 16, 152, 56, 24);
+
+        self.emu = emu;
+        self.pt_view = try PatternTableView.init(allocator);
+        self.palette_view = PaletteView.init(emu.ppu);
+        self.tile_preview = TilePreview.init();
+        self.sprite_view = PrimaryOAMView.init(allocator, emu.ppu, &self.tile_preview);
+
+        return self;
+    }
+
+    pub fn draw(self: *Self) !void {
+        self.pt_view.draw(self.emu.ppu, 0);
+        self.pt_view.draw(self.emu.ppu, 1);
+        self.palette_view.drawBackgroundPalettes();
+        self.palette_view.drawForegroundPalettes();
+        self.sprite_view.draw();
+
+        var emu = self.emu;
+        self.registerWin.draw();
+        try self.registerWin.drawLabelUint(100, 56, 24, 24, emu.cpu.A);
+        try self.registerWin.drawLabelUint(32, 32, 24, 24, emu.cpu.X);
+        try self.registerWin.drawLabelUint(32, 56, 24, 24, emu.cpu.Y);
+        try self.registerWin.drawLabelUint(100, 32, 24, 24, emu.cpu.S);
+        // PC points to the next instruction to be executed. (TODO: dont do this)
+        try self.registerWin.drawLabelUint(40, 104, 40, 24, emu.cpu.PC - 1);
+
+        var cpu_status: u8 = @bitCast(emu.cpu.StatusRegister);
+        try self.registerWin.drawLabelUint(60, 152, 24, 24, cpu_status);
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.pt_view.deinit();
+        self.tile_preview.deinit();
+        self.sprite_view.deinit();
+    }
+};
+
 pub fn main() !void {
+    var args = std.process.args();
+    _ = args.skip();
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
 
+    var isDebug = false;
+    if (args.next()) |arg| {
+        isDebug = std.mem.eql(u8, arg, debugFlag);
+    }
+
     rl.SetConfigFlags(rl.ConfigFlags{ .FLAG_WINDOW_RESIZABLE = false });
-    rl.InitWindow(800, 800, "nez");
+
+    if (isDebug) {
+        rl.InitWindow(800, 800, "nez");
+    } else {
+        rl.InitWindow(256 * 2, 240 * 2, "nez");
+    }
+
     rl.SetTargetFPS(200);
-
-    rg.GuiLoadStyle(style);
-
     defer rl.CloseWindow();
 
-    var registerWin = gui.Window.new(allocator, "CPU State", 0, 0, 160, 240);
-
-    var emu = try NESConsole.fromROMFile(allocator, "./roms/smb.nes");
+    var emu = try NESConsole.fromROMFile(allocator, "./roms/balloon-fight");
     defer emu.deinit();
 
+    var debug_view = try DebugView.init(allocator, &emu);
+    defer debug_view.deinit();
     emu.powerOn();
-
-    try registerWin.addLabel("A", 88, 56, 24, 24);
-    try registerWin.addLabel("X", 16, 32, 24, 24);
-    try registerWin.addLabel("Y", 16, 56, 24, 24);
-    try registerWin.addLabel("S", 88, 32, 24, 24);
-    try registerWin.addLabel("PC", 16, 104, 30, 24);
-    try registerWin.addLabel("Status", 16, 152, 56, 24);
 
     var then: u64 = @intCast(std.time.milliTimestamp());
 
     var screen = views.Screen.init(emu.ppu, allocator);
     defer screen.deinit();
-
-    var pt_view = try PatternTableView.init(allocator);
-    defer pt_view.deinit();
-
-    var palette_view = PaletteView.init(emu.ppu);
-
-    var tile_preview = TilePreview.init();
-    defer tile_preview.deinit();
-
-    var sprite_view = PrimaryOAMView.init(allocator, emu.ppu, &tile_preview);
-    defer sprite_view.deinit();
 
     while (!rl.WindowShouldClose()) {
         var now: u64 = @intCast(std.time.milliTimestamp());
@@ -99,29 +134,15 @@ pub fn main() !void {
         defer rl.EndDrawing();
 
         _ = try emu.update(dt);
+        if (!emu.is_paused) readGamepad(emu.controller);
         if (rl.IsKeyPressed(rl.KeyboardKey.KEY_SPACE)) {
             emu.is_paused = !emu.is_paused;
-            // try emu.debugTick();
         }
 
         try screen.draw();
-        pt_view.draw(emu.ppu, 0);
-        pt_view.draw(emu.ppu, 1);
-        palette_view.drawBackgroundPalettes();
-        palette_view.drawForegroundPalettes();
-        sprite_view.draw();
-
-        registerWin.draw();
-        try registerWin.drawLabelUint(100, 56, 24, 24, emu.cpu.A);
-        try registerWin.drawLabelUint(32, 32, 24, 24, emu.cpu.X);
-        try registerWin.drawLabelUint(32, 56, 24, 24, emu.cpu.Y);
-        try registerWin.drawLabelUint(100, 32, 24, 24, emu.cpu.S);
-        // PC points to the next instruction to be executed. (TODO: dont do this)
-        try registerWin.drawLabelUint(40, 104, 40, 24, emu.cpu.PC - 1);
-
-        var cpu_status: u8 = @bitCast(emu.cpu.StatusRegister);
-        try registerWin.drawLabelUint(60, 152, 24, 24, cpu_status);
-
+        if (isDebug) {
+            try debug_view.draw();
+        }
         rl.ClearBackground(rl.BLACK);
     }
 }

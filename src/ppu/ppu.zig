@@ -597,8 +597,7 @@ pub const PPU = struct {
     /// Copy the horizontal bits from the `t` register into the `v` register.
     fn resetHorz(self: *Self) void {
         self.vram_addr.coarse_x = self.t.coarse_x;
-        self.vram_addr.nametable =
-            (self.vram_addr.nametable & 0b10) | (self.t.nametable & 0b01);
+        self.vram_addr.nametable = (self.vram_addr.nametable & 0b10) | (self.t.nametable & 0b01);
     }
 
     /// copy the first 8 sprites on current scanline from primary OAM to secondary OAM.
@@ -751,9 +750,7 @@ pub const PPU = struct {
             // Once we're done drawing the last pixel of a scanline,
             // reset the horizontal tile position in the `v` register.
             257 => {
-                if (draw_bg) {
-                    self.resetHorz();
-                }
+                if (draw_bg) self.resetHorz();
             },
 
             258, 260, 266, 305 => if (draw_bg) {

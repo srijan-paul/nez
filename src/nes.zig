@@ -4,6 +4,7 @@ const bus_mod = @import("bus.zig");
 const Cart = @import("cart.zig").Cart;
 const rl = @import("raylib");
 const PPU = @import("./ppu/ppu.zig").PPU;
+const Gamepad = @import("gamepad.zig");
 
 const Bus = bus_mod.Bus;
 const NESBus = bus_mod.NESBus;
@@ -23,6 +24,7 @@ pub const Console = struct {
     cpu: *CPU,
     ppu: *PPU,
     mainBus: *NESBus,
+    controller: *Gamepad,
     is_paused: bool = false,
 
     /// Initialize an NES console from a ROM file.
@@ -32,8 +34,11 @@ pub const Console = struct {
 
         var ppu = try allocator.create(PPU);
 
+        var gamepad = try allocator.create(Gamepad);
+        gamepad.* = Gamepad{};
+
         var mainBus = try allocator.create(NESBus);
-        mainBus.* = try NESBus.init(allocator, cart, ppu);
+        mainBus.* = try NESBus.init(allocator, cart, ppu, gamepad);
 
         var cpu = try allocator.create(CPU);
         cpu.* = CPU.init(allocator, &mainBus.bus);
@@ -46,6 +51,7 @@ pub const Console = struct {
             .cpu = cpu,
             .ppu = ppu,
             .mainBus = mainBus,
+            .controller = gamepad,
         };
     }
 
@@ -57,6 +63,7 @@ pub const Console = struct {
         self.allocator.destroy(self.cpu);
         self.allocator.destroy(self.ppu);
         self.allocator.destroy(self.mainBus);
+        self.allocator.destroy(self.controller);
     }
 
     pub fn powerOn(self: *Self) void {
