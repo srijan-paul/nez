@@ -30,8 +30,6 @@ fn readGamepad(pad: *Gamepad) void {
     pad.setInputs(buttons);
 }
 
-const debugFlag = "--debug";
-
 const DebugView = struct {
     const Self = @This();
     registerWin: gui.Window,
@@ -90,6 +88,8 @@ const DebugView = struct {
     }
 };
 
+const debugFlag = "--debug";
+
 pub fn main() !void {
     var args = std.process.args();
     _ = args.skip();
@@ -98,8 +98,26 @@ pub fn main() !void {
     var allocator = gpa.allocator();
 
     var isDebug = false;
-    if (args.next()) |arg| {
+    var flags: [2]?[:0]const u8 = undefined;
+
+    flags[0] = args.next();
+    flags[1] = args.next();
+
+    var romPath: [:0]const u8 = "./roms/beepboop.nes";
+    if (flags[0]) |arg| {
         isDebug = std.mem.eql(u8, arg, debugFlag);
+        // If it wasnt the debug flag, then it must be a path to the ROM
+        if (!isDebug) romPath = arg;
+    }
+
+    if (flags[1]) |arg| {
+        if (isDebug) {
+            // debug flag already given, this must be the rom path
+            romPath = arg;
+        } else {
+            // debug flag not given, this must be the debug flag
+            isDebug = std.mem.eql(u8, arg, debugFlag);
+        }
     }
 
     rl.SetConfigFlags(rl.ConfigFlags{ .FLAG_WINDOW_RESIZABLE = false });
@@ -113,7 +131,7 @@ pub fn main() !void {
     rl.SetTargetFPS(200);
     defer rl.CloseWindow();
 
-    var emu = try NESConsole.fromROMFile(allocator, "./roms/balloon-fight");
+    var emu = try NESConsole.fromROMFile(allocator, romPath);
     defer emu.deinit();
 
     var debug_view = try DebugView.init(allocator, &emu);

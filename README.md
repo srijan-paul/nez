@@ -66,6 +66,19 @@ Clone the repository, then clone all submdoules, and use the zig build command
 zig build run
 ```
 
+This will open a custom ROM I wrote in debug mode.
+To play games, make sure you have a `.nes` file somewhere, and use:
+ 
+ ```sh
+ zig build run -- <path-to-rom>
+ ```
+
+**NOTE:** Pirating ROMs is illegal, and I therefore highly recommend against going to websites like 
+[this](https://www.emulatorgames.net/roms/nintendo/)
+to download ROM files and open them in nez. 
+
+Oh, and only NROM  games are supported right now. So no contra, duck hunt, ninja gaiden, or darkwing duck, etc.
+
 The CPU has about ~10k test cases for each instruction, coming from [this awesome test repository](https://github.com/TomHarte/ProcessorTests/tree/main/nes6502).
 To run the CPU tests, use `zig test src/cpu.zig`.
 
@@ -74,8 +87,8 @@ To run the CPU tests, use `zig test src/cpu.zig`.
 - [x] Support vertical scrolling
 - [x] Sprite zero hit
 - [x] Support horizontal scrolling
-- [ ] Support split scrolling
-- [ ] Add support for the controller
+- [x] Support split scrolling
+- [x] Add support for the controller
 - [ ] Support more mappers
     - [ ] CNROM
     - [ ] UnROM
