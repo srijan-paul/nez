@@ -447,9 +447,8 @@ pub const PPU = struct {
                 // Sprite zero hit: https://www.nesdev.org/wiki/PPU_OAM#Sprite_zero_hits
                 // This happens regardless of sprite priority.
                 if (i == 0 and // sprite 0 is always in the first latch.
-                    i < self.num_sprites_on_scanline and
-                    self.scanline_has_sprite0 and
-                    !is_bg_transparent)
+                    i < self.num_sprites_on_scanline and self.scanline_has_sprite0 and
+                    is_sprite_px_opaque and !is_bg_transparent)
                 {
                     self.ppu_status.sprite_zero_hit = true;
                 }
