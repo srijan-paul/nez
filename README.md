@@ -10,6 +10,34 @@ The project is  meant to serve as an example to anyone wanting to write their ow
     <img src="./screens/donkey-kong.png" alt="donkey kong gameplay" width="300px"/>
 </div>
 
+## Usage
+
+Make sure you have a ROM file in the iNES format.
+And definitely do not download ROMs from websites such as [this one](https://www.emulatorgames.net/roms/nintendo/),
+because that would be illegal (I think).
+
+To launch a ROM from the command line:
+
+```
+nez path/to/rom.nes 
+```
+
+To see debug info while playing the games:
+
+```
+nez --debug path/to/rom.nes
+```
+
+Controls:
+
+| Controller         | Keyboard   |
+|--------------------|------------|
+| A                  | Q          |
+| B                  | E          |
+| Start              | Enter      |
+| Select             | X          |
+| Up/Down/Left/Right | Arrow keys |
+
 ## Components
 
 ### The CPU: Ricoh-2A03
@@ -72,10 +100,6 @@ To play games, make sure you have a `.nes` file somewhere, and use:
  ```sh
  zig build run -- <path-to-rom>
  ```
-
-**NOTE:** Pirating ROMs is illegal, and I therefore highly recommend against going to websites like 
-[this](https://www.emulatorgames.net/roms/nintendo/)
-to download ROM files and open them in nez. 
 
 Oh, and only NROM  games are supported right now. So no contra, duck hunt, ninja gaiden, or darkwing duck, etc.
 

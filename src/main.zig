@@ -91,11 +91,12 @@ const DebugView = struct {
 const debugFlag = "--debug";
 
 pub fn main() !void {
-    var args = std.process.args();
-    _ = args.skip();
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
+
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
+    _ = args.skip();
 
     var isDebug = false;
     var flags: [2]?[:0]const u8 = undefined;

@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
 
     const exe = b.addExecutable(.{
-        .name = "raylib-test",
+        .name = "nez",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = "src/main.zig" },
@@ -30,6 +30,14 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    if (target.isDarwin() and !target.isNative()) {
+        if (b.sysroot == null) {
+            @panic(" Pass --sysroot <path/to/macOS/SDK>");
+        }
+        exe.addSystemIncludePath(.{ .path = b.pathJoin(&.{ b.sysroot.?, "/usr/include" }) });
+        exe.addLibraryPath(.{ .path = b.pathJoin(&.{ b.sysroot.?, "/usr/lib" }) });
+        exe.addFrameworkPath(.{ .path = b.pathJoin(&.{ b.sysroot.?, "/System/Library/Frameworks" }) });
+    }
     raylib.addTo(b, exe, target, optimize);
     raygui.addTo(b, exe, target, optimize);
 
