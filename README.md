@@ -13,8 +13,8 @@ The project is  meant to serve as an example to anyone wanting to write their ow
 ## Usage
 
 Make sure you have a ROM file in the iNES format.
-And definitely do not download ROMs from websites such as [this one](https://www.emulatorgames.net/roms/nintendo/),
-because that would be illegal (I think).
+Some people download ROMs from piracy websites such as [this one](https://www.emulatorgames.net/roms/nintendo/).
+Of course, I would never recommend that ;)
 
 To launch a ROM from the command line:
 
@@ -125,5 +125,6 @@ To run the CPU tests, use `zig test src/cpu.zig`.
 ## Motivation
 
 I started out wanting to write a fantasy console,
-but didn't want to invent another programming language, compiler, assembler, and then
-write ROMs in those.
+but didn't want to invent another programming language, compiler, assembler, and then write ROMs in those.
+Emulating an existing console sounded like an equally challenging, but more fruitful venture.
+
