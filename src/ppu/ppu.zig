@@ -101,15 +101,17 @@ pub const PPU = struct {
 
     /// Number of sprites currently present in the secondary OAM and sprite latches.
     num_sprites_on_scanline: u8 = 0,
+    /// `true` if the next scanline has sprite 0 in it.
+    next_scanline_has_sprite0: bool = false,
     /// `true` if the current scanline has sprite 0 in it.
-    scanline_has_sprite0: bool = false,
+    this_scanline_has_sprite0: bool = false,
 
     // We want the PPU to start on the pre-render scanline.
     // So the scanline and dot are set to 260, and 240 respectively.
     // When the first tick() is called, the scanline and dot will be
     // incremented to 261 and 0 respectively.
     cycle: u16 = 340,
-    current_scanline: u16 = 260,
+    scanline: u16 = 260,
 
     /// Current position inside the frame buffer.
     /// This depends on the current scanline and cycle.
@@ -446,8 +448,9 @@ pub const PPU = struct {
 
                 // Sprite zero hit: https://www.nesdev.org/wiki/PPU_OAM#Sprite_zero_hits
                 // This happens regardless of sprite priority.
-                if (i == 0 and // sprite 0 is always in the first latch.
-                    i < self.num_sprites_on_scanline and self.scanline_has_sprite0 and
+                if (i == 0 and // sprite 0 is always in the first latch
+                    i < self.num_sprites_on_scanline and
+                    self.this_scanline_has_sprite0 and
                     is_sprite_px_opaque and !is_bg_transparent)
                 {
                     self.ppu_status.sprite_zero_hit = true;
@@ -600,22 +603,24 @@ pub const PPU = struct {
     }
 
     /// copy the first 8 sprites on current scanline from primary OAM to secondary OAM.
+    /// These sprites are then rendered in the next scanline.
     fn copySpritesToSecondaryOAM(self: *Self) void {
         var num_sprites: u8 = 0;
+        self.next_scanline_has_sprite0 = false;
         for (0..64) |sprite_index| {
             // If we've already found 8 sprites, stop copying.
-            if (num_sprites >= 8) break;
+            if (num_sprites == 8) break;
 
             var oam_index = 4 * sprite_index;
             var y: u16 = self.oam[oam_index];
-            var screen_y = self.current_scanline;
+            var screen_y = self.scanline;
 
             var is_visible_on_line = y <= screen_y and (y + 8) > screen_y;
             if (!is_visible_on_line) continue;
 
             // Does this scanline contain the 0th sprite from OAM?
             // (will be useful later to calculate the sprite zero hit flag)
-            if (sprite_index == 0) self.scanline_has_sprite0 = true;
+            if (sprite_index == 0) self.next_scanline_has_sprite0 = true;
 
             // Since the sprite is visible on this scanline, copy all its bytes to secondary OAM.
             // Later, the pattern table bytes for these sprites will be loaded into the sprite latches.
@@ -640,8 +645,8 @@ pub const PPU = struct {
         // This should happen between cycles 64 and 256, but I do it all at once on dot-64.
         if (self.cycle == 64) self.copySpritesToSecondaryOAM();
 
-        // TODO: should I do these in a cycle accurate manner, since we're reading from the pattern table?
         // Use sprite data from secondary OAM to fill sprites latches.
+        // TODO: should I do these in a cycle accurate manner, since we're reading from the pattern table?
         if (self.cycle == 257) {
             for (0..self.num_sprites_on_scanline) |i| {
                 std.debug.assert(i <= 7);
@@ -651,8 +656,8 @@ pub const PPU = struct {
                 var attrs: SpriteAttributes = @bitCast(self.secondary_oam[j + 2]);
                 var sprite_x = self.secondary_oam[j + 3];
 
-                std.debug.assert(self.current_scanline - sprite_y < 8);
-                var row: u8 = @truncate(self.current_scanline - sprite_y);
+                std.debug.assert(self.scanline - sprite_y < 8);
+                var row: u8 = @truncate(self.scanline - sprite_y);
                 if (attrs.flip_vert) {
                     row = 7 - row;
                 }
@@ -672,7 +677,6 @@ pub const PPU = struct {
                     .pattern_hi = pt_hi,
                     .attr = attrs,
                 };
-
                 self.sprites_on_scanline[i] = sprite;
             }
 
@@ -686,19 +690,21 @@ pub const PPU = struct {
     fn visibleScanline(self: *Self) void {
         // On the last cycle of the last visible scanline, reset the frame buffer position
         // so that we begin drawing the next frame from the 0th pixel in the buffer.
-        if ((self.current_scanline == 239 and self.cycle == 340) or
-            (self.current_scanline == 0 and self.cycle == 0))
+        if ((self.scanline == 239 and self.cycle == 340) or
+            (self.scanline == 0 and self.cycle == 0))
         {
             self.frame_buffer_pos = 0;
         }
 
-        var is_prerender_line = self.current_scanline == 261;
+        var is_prerender_line = self.scanline == 261;
 
         var draw_bg = self.ppu_mask.draw_bg;
 
         // The 0th cycle is idle, nothing happens apart from regular rendering.
         if (self.cycle == 0) {
-            // TODO: handle bg and fg separately.
+            self.this_scanline_has_sprite0 = self.next_scanline_has_sprite0;
+            self.next_scanline_has_sprite0 = false;
+
             if (draw_bg) {
                 self.renderPixel();
                 self.shiftBgRegsiters();
@@ -709,7 +715,6 @@ pub const PPU = struct {
         if (is_prerender_line) {
             if (self.cycle == 1) {
                 self.ppu_status.sprite_zero_hit = false;
-                self.scanline_has_sprite0 = false;
             } else if (self.cycle >= 280 and self.cycle <= 304 and draw_bg) {
                 self.resetVert();
             }
@@ -776,13 +781,13 @@ pub const PPU = struct {
         self.cycle += 1;
         if (self.cycle > 340) {
             self.cycle = 0;
-            self.current_scanline += 1;
-            if (self.current_scanline > 261) {
-                self.current_scanline = 0;
+            self.scanline += 1;
+            if (self.scanline > 261) {
+                self.scanline = 0;
             }
         }
 
-        switch (self.current_scanline) {
+        switch (self.scanline) {
             // pre-render scanline.
             261 => {
                 if (self.cycle == 1) {
