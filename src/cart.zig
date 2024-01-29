@@ -158,27 +158,11 @@ pub const Cart = struct {
         }
 
         // populate the PRG ROM.
-        const prg_rom_banksize = 16 * 1024; // size of each ROM bank
-        // We allocate enough space for 2 banks.
-        // Even if there is only one 16KB wide bank,
-        // a program can still address beyond the first 16KB.
-        // ROMs that only have one bank will mirror the first one
-        // into the second 16kb slot.
-        // This is done to ensure the correct placement of the vector table.
-        var prg_rom_buf = try allocator.alloc(u8, 2 * prg_rom_banksize);
+        const prg_rom_banksize: usize = 16 * 1024; // size of each ROM bank
 
-        if (header.prg_rom_banks == 1) {
-            // If there is only one bank, read it, and mirror it into
-            // the address space of the second bank.
-            var first_bank = prg_rom_buf[0..prg_rom_banksize];
-            bytes_read = try file.read(first_bank);
-            assert(bytes_read == prg_rom_banksize);
-            @memcpy(prg_rom_buf[prg_rom_banksize .. prg_rom_banksize * 2], first_bank);
-        } else {
-            // If there are two banks, read both of them into the PRG rom
-            // address space.
-            bytes_read = try file.read(prg_rom_buf);
-        }
+        var prg_rom_buf = try allocator.alloc(u8, header.prg_rom_banks * prg_rom_banksize);
+        bytes_read = try file.read(prg_rom_buf);
+        std.debug.assert(bytes_read == prg_rom_buf.len);
 
         total_bytes_read += bytes_read;
         var chr_rom_size = @as(usize, header.chr_rom_size) * 8 * 1024;
