@@ -79,7 +79,7 @@ pub const Header = packed struct {
     flags_7: Flags7 = .{},
 
     // A value of 0 assumes 8KB of PRG RAM for compatibility.
-    _unused_prg_ram_size: u8 = 0,
+    prg_ram_size: u8 = 0,
 
     // Used to tell apart PAL TV system cartridges from NTSC ones.
     // Unused. No ROM images use this.
@@ -112,7 +112,8 @@ pub const Header = packed struct {
         var mapper_code = (hi << 4) | lo;
         return switch (mapper_code) {
             0 => MapperKind.nrom,
-            else => unreachable,
+            1 => MapperKind.mmc1,
+            else => std.debug.panic("Unsupported mapper: {d}", .{mapper_code}),
         };
     }
 };
@@ -124,6 +125,7 @@ pub const Cart = struct {
     prg_ram: [prg_ram_size]u8 = [_]u8{0} ** prg_ram_size,
     prg_rom: []u8,
     chr_rom: []u8,
+    chr_ram: []u8,
     allocator: Allocator,
 
     const Self = @This();
@@ -146,7 +148,7 @@ pub const Cart = struct {
         }
 
         // Value of 0 = 8KiB PRG RAM.
-        assert(header._unused_prg_ram_size == 0);
+        assert(header.prg_ram_size == 0);
 
         if (header.flags_6.trainer) {
             // skip the trainer, if present.
@@ -172,12 +174,17 @@ pub const Cart = struct {
         total_bytes_read += bytes_read;
         assert(bytes_read == chr_rom_size);
 
+        // When a cart does not have CHR-ROM (e.g: Zelda), it has CHR-RAM which is 8KiB.
+        var chr_ram_size: usize = if (chr_rom_size == 0) 8 * 1024 else 0;
+        var chr_ram_buf = try allocator.alloc(u8, chr_ram_size);
+
         // I do not support playchoice inst-rom and prom (yet).
 
         return .{
             .header = header,
             .prg_rom = prg_rom_buf,
             .chr_rom = chr_rom_buf,
+            .chr_ram = chr_ram_buf,
             .allocator = allocator,
         };
     }
@@ -186,6 +193,7 @@ pub const Cart = struct {
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.prg_rom);
         self.allocator.free(self.chr_rom);
+        self.allocator.free(self.chr_ram);
     }
 };
 

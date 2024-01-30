@@ -10,85 +10,249 @@ const FlagsControl = packed struct {
     /// 0: one screen, lower bank; 1: one screen, upper bank.
     /// 2: vertical; 3: horizontal
     mirror_mode: u2 = 0,
-    /// TODO: understand how this works.
+    /// 0,1: Switch 32KB at $8000, ignoring low bit of bank number.
+    /// 1: fix first bank at $8000, and switch 16KB bank at $C000.
+    /// 0: fix last bank at $C000, and switch 16KB bank at $8000.
     prg_rom_bank_mode: u2 = 3,
-    /// 1: Switch two 8kb banks, 0: Switch 8KB banks at a time.
-    chr_rom_is_4kb: bool = 0,
+    /// 1: Switch two 4kb banks, 0: Switch 8KB banks at a time.
+    chr_rom_is_4kb: bool = false,
+
+    comptime {
+        std.debug.assert(@bitSizeOf(FlagsControl) == 5);
+    }
 };
+
+/// A bank register (PRG or CHR) has 5 bits.
+/// Meaning one could theoretically access bank number 31 (0b11111) in a cart that only has
+/// one or two banks. To prevent this, we mask away the high bits when the bank number is too large.
+/// The mask to use depends on the number of banks present in the cart.
+/// If there are 9 banks in the cart, but the programmer tries to access bank #31,
+/// we do 0b11111 & 0b00111 = 0b00111, which is a valid bank number less than 9.
+fn maskFromBankCount(bank_count: u8) u5 {
+    return switch (bank_count) {
+        0...1 => 1,
+        2...3 => 2,
+        4...7 => 3,
+        8...15 => 4,
+        16...31 => 5,
+        32...63 => 6,
+        64...127 => 7,
+        128...255 => 8,
+    };
+}
 
 /// The iNES format assigns mapper 0 to the NROM board,
 /// which is the most common board type.
 /// This was used by most early NES games.
 pub const MMC1 = struct {
     const Self = @This();
+
+    const PrgBankSize = 0x4000; // 16KiB per bank.
+    const ChrBankSize = 0x1000; // 4KiB per bank.
+
+    mapper: Mapper,
     cart: *Cart,
     ppu: *PPU,
-    mapper: Mapper,
 
     /// This shift register is used to determine the currently selected bank.
     /// When the LSB is set to '1', the SR is considered to be "full".
-    /// When the SR is full, any writes to this register will reset it to 0b10000,
-    /// and the value being written will be used to select the bank.
+    /// When the SR is full, any writes to this register first shift one bit into it as usual,
+    /// then copy its contents to an internal register depending on the address used to reach it.
+    /// Finally, the SR is cleared back to 0b10000.
     /// Ref: https://www.nesdev.org/wiki/MMC1#Examples
-    shiftRegister: u8 = 0b000_10000,
-    controlRegister: FlagsControl = .{},
+    shift_register: u5 = 0b10000,
 
-    /// 8 KB PRG RAM bank (optional)
-    const prg_ram = .{ .start = 0x6000, .end = 0x7FFF };
-    /// 16 KB PRG ROM bank, either switchable or fixed to the first bank
-    const prg_rom_bank_1 = .{ .start = 0x8000, .end = 0xBFFF };
-    /// 16 KB PRG ROM bank, either fixed to the last bank or switchable
-    const prg_rom_bank_2 = .{ .start = 0xC000, .end = 0xFFFF };
+    /// Controls mirroring, PRG bank mode, and CHR bank mode.
+    ctrl_register: FlagsControl = .{}, // when SR is written via $8000 - $9FFF
+    chr_bank0: u5 = 0, // when SR is written via $A000 - $BFFF
+    chr_bank1: u5 = 0, // when SR is written via $C000 - $DFFF
+    prg_bank: u5 = 0, // when SR is written via $E000 - $FFFF
+
+    prg_rom_bank_count: u5, // # of 16 KB PRG ROM banks in the cart
+    chr_rom_bank_count: u5, // # of 8 KB CHR ROM banks in the cart
+    has_chr_ram: bool, // whether the cart has CHR RAM
+
+    /// CPU address space $8000 - $BFFF
+    prg_rom_lo: []u8,
+    /// CPU address space $C000 - $FFFF
+    prg_rom_hi: []u8,
+
+    /// PPU address space $0000 - $0FFF
+    chr_rom_lo: []u8,
+    /// PPU address space $1000 - $1FFF
+    chr_rom_hi: []u8,
+
+    /// Given the PRG ROM bank number set by user,
+    /// returns the actual PRG ROM bank number to use.
+    fn maskChrRomBank(self: *Self, bank_number: u5) u5 {
+        if (bank_number < self.chr_rom_bank_count) return bank_number;
+        // Since the bank registers are 5-bits wide, they can have a value of upto 32.
+        // No cart has that many banks present, so we mask away the high bits
+        // when the bank number is too large.
+        var mask = @call(.always_inline, maskFromBankCount, .{self.chr_rom_bank_count});
+        return bank_number & mask;
+    }
+
+    fn writeChrBank0(self: *Self, value: u5) void {
+        self.chr_bank0 = self.maskChrRomBank(value);
+        self.updateBankOffsets();
+    }
+
+    fn writeChrBank1(self: *Self, value: u5) void {
+        self.chr_bank1 = self.maskChrRomBank(value);
+        self.updateBankOffsets();
+    }
+
+    fn writePrgBank(self: *Self, value: u5) void {
+        var bank = value;
+        if (bank >= self.prg_rom_bank_count) {
+            bank = @call(.always_inline, maskFromBankCount, .{self.prg_rom_bank_count});
+        }
+        self.prg_bank = bank;
+        self.updateBankOffsets();
+    }
+
+    /// Update the memory-maps for PRG and CHR banks based on the current control register.
+    fn updateBankOffsets(self: *Self) void {
+        switch (self.ctrl_register.prg_rom_bank_mode) {
+            0, 1 => {
+                // Switch 32KB at $8000, ignoring low bit of bank number.
+                var bank_number = self.maskChrRomBank(self.prg_bank | 0b00001);
+
+                var bank1_start = @as(u32, bank_number) * 2 * PrgBankSize;
+                var bank1_end = bank1_start + PrgBankSize;
+                self.prg_rom_lo = self.cart.prg_rom[bank1_start..bank1_end];
+
+                var bank2_start = bank1_end;
+                var bank2_end = bank2_start + PrgBankSize;
+                self.prg_rom_hi = self.cart.prg_rom[bank2_start..bank2_end];
+            },
+            2 => {
+                // fix first bank at $8000, and switch 16KB bank at $C000.
+                self.prg_rom_lo = self.cart.prg_rom[0..PrgBankSize];
+
+                var bank_start = PrgBankSize * @as(u32, self.prg_bank);
+                var bank_end = bank_start + PrgBankSize;
+                self.prg_rom_hi = self.cart.prg_rom[bank_start..bank_end];
+            },
+            3 => {
+                // fix last bank at $C000, and switch the 16Kb bank at $8000.
+                var bank_offset = PrgBankSize * @as(u32, self.prg_bank);
+                self.prg_rom_lo = self.cart.prg_rom[bank_offset .. bank_offset + PrgBankSize];
+
+                var last_bank_start = (@as(u32, self.prg_rom_bank_count) - 1) * PrgBankSize;
+                self.prg_rom_hi = self.cart.prg_rom[last_bank_start .. last_bank_start + PrgBankSize];
+            },
+        }
+
+        // The bank switching controls do not do anything if the cart has CHR RAM (not ROM).
+        // The CHR RAM resides in the same address space as CHR ROM, the only real difference
+        // is that a program can write to CHR RAM whereas CHR ROM is (obviously) Read only.
+        if (self.has_chr_ram) return;
+
+        if (self.ctrl_register.chr_rom_is_4kb) {
+            // Switch two 4kb banks.
+            var bank1_start = @as(u32, self.chr_bank0) * ChrBankSize;
+            self.chr_rom_lo = self.cart.chr_rom[bank1_start .. bank1_start + ChrBankSize];
+
+            var bank2_start = @as(u32, self.chr_bank1) * ChrBankSize;
+            self.chr_rom_hi = self.cart.chr_rom[bank2_start .. bank2_start + ChrBankSize];
+        } else {
+            // Switch 8KB banks at a time.
+            var offset = @as(u32, self.chr_bank0) * 2 * ChrBankSize;
+            self.chr_rom_lo = self.cart.chr_rom[offset .. offset + ChrBankSize];
+            self.chr_rom_hi = self.cart.chr_rom[offset + ChrBankSize .. offset + 2 * ChrBankSize];
+        }
+    }
+
+    /// Write to an internal register.
+    /// This subroutine is called whenever a full shift register (xxxx1) is written to.
+    /// The destination register is determined by bit 13 and 14 of the address used to
+    /// reach the shift register (addr).
+    /// Ref: https://www.nesdev.org/wiki/MMC1#Registers
+    fn writeRegister(self: *Self, addr: u16, value: u5) void {
+        switch (addr) {
+            0x8000...0x9FFF => self.ctrl_register = @bitCast(value),
+            0xA000...0xBFFF => self.writeChrBank0(value),
+            0xC000...0xDFFF => self.writeChrBank1(value),
+            0xE000...0xFFFF => self.writePrgBank(value),
+            else => std.debug.panic("MMC1: Bad register address", .{}),
+        }
+    }
+
+    /// Write to the shift register.
+    fn writeShiftRegister(self: *Self, addr: u16, value: u8) void {
+        // When the SR is full, any write to this register will:
+        // 1. Copy the contents of SR to an internal register depending on `addr`.
+        // 2. Clear the SR.
+        if (self.shift_register & 0b00001 == 1) {
+            // Copy the LSB into SR's MSB as usual.
+            self.shift_register >>= 1;
+            self.shift_register |= @truncate((value & 0b1) << 4);
+            self.writeRegister(addr, self.shift_register);
+
+            self.shift_register = 0b10000;
+            return;
+        }
+
+        // Set the MSB of the shift register to the LSB of the value.
+        self.shift_register >>= 1;
+        self.shift_register |= @truncate((value & 0b1) << 4);
+    }
+
+    fn read(i_mapper: *Mapper, addr: u16) u8 {
+        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
+        return switch (addr) {
+            0x0000...0x5FFF => std.debug.panic("Open bus behavior not emulated.\n", .{}),
+            0x6000...0x7FFF => self.cart.prg_ram[addr - 0x6000],
+            0x8000...0xBFFF => self.prg_rom_lo[addr - 0x8000],
+            0xC000...0xFFFF => self.prg_rom_hi[addr - 0xC000],
+        };
+    }
+
+    fn write(i_mapper: *Mapper, addr: u16, value: u8) void {
+        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
+        switch (addr) {
+            0x6000...0x7FFF => self.cart.prg_ram[addr - 0x6000] = value,
+            0x8000...0xFFFF => self.writeShiftRegister(addr, value),
+            else => std.debug.panic("MMC1: Bad write address {d}\n", .{addr}),
+        }
+    }
+
+    /// Create a new mapper that operates on `cart`.
+    pub fn init(cart: *Cart, ppu: *PPU) Self {
+        var self = Self{
+            .ppu = ppu,
+            .cart = cart,
+            .has_chr_ram = cart.header.chr_rom_size == 0,
+            .prg_rom_bank_count = @truncate(cart.header.prg_rom_banks),
+            .chr_rom_bank_count = @truncate(cart.header.chr_rom_size),
+            .mapper = Mapper.init(read, write, ppuRead, ppuWrite),
+            .prg_rom_lo = undefined,
+            .prg_rom_hi = undefined,
+            .chr_rom_lo = undefined,
+            .chr_rom_hi = undefined,
+        };
+
+        // Initialize the PRG and CHR address spaces.
+        // Initially, the PRG ROM bank mode is 3, and the CHR ROM bank mode is 0.
+        self.updateBankOffsets();
+
+        return self;
+    }
 
     /// Read a byte from the cartridge's CHR ROM.
     fn ppuRead(i_mapper: *Mapper, addr: u16) u8 {
         var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
+        std.debug.assert(addr < 0x2000);
+        if (self.has_chr_ram) return self.cart.chr_ram[addr];
         return self.cart.chr_rom[addr];
     }
 
     /// Write a byte to PPU memory.
     fn ppuWrite(i_mapper: *Mapper, addr: u16, value: u8) void {
         var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
-        self.ppu.ppu_ram[addr] = value;
-    }
-
-    fn writeControl(self: *Self, value: u8) void {
-        _ = value;
-        _ = self;
-    }
-
-    fn writeShiftRegister(self: *Self, value: u8) void {
-        // Writing a value with bit-7 set clears the shift register.
-        if (value & 0b1000_0000 == 1) {
-            self.currentBank = self.shiftRegister;
-            self.shiftRegister = 0b10000;
-            return;
-        }
-
-        // Set the MSB of the shift register to the LSB of the value
-        self.shiftRegister >>= 1;
-        self.shiftRegister |= ((value & 0b1) << 4);
-    }
-
-    fn read(i_mapper: *Mapper, addr: u16) u8 {
-        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
-        _ = self;
-        _ = addr;
-    }
-
-    fn write(i_mapper: *Mapper, addr: u16, value: u8) void {
-        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
-        switch (addr) {
-            0x8000...0xFFFF => self.writeShiftRegister(value),
-        }
-    }
-
-    /// Create a new mapper that operates on `cart`.
-    pub fn init(cart: *Cart, ppu: *PPU) Self {
-        return .{
-            .cart = cart,
-            .ppu = ppu,
-            .mapper = Mapper.init(read, write, ppuRead, ppuWrite),
-        };
+        std.debug.assert(addr < 0x2000);
+        if (self.has_chr_ram) self.cart.chr_ram[addr] = value;
     }
 };

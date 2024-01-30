@@ -1,6 +1,9 @@
 const Cart = @import("../cart.zig").Cart;
 
-pub const MapperKind = enum { nrom };
+pub const MapperKind = enum {
+    nrom,
+    mmc1,
+};
 
 /// NES Mapper interface.
 /// Zig interfaces are awkward :S

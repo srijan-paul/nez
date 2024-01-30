@@ -1,6 +1,7 @@
 const Cart = @import("./cart.zig").Cart;
 const mapper_mod = @import("./mappers/mapper.zig");
 const NROM = @import("./mappers/nrom.zig").NROM;
+const MMC1 = @import("./mappers/mmc1.zig").MMC1;
 const std = @import("std");
 const Gamepad = @import("./gamepad.zig");
 
@@ -103,21 +104,29 @@ pub const NESBus = struct {
                     self.controller.write(val);
                     return;
                 }
-                // TODO: APU, controller I/O.
+                // TODO: APU.
             },
             0x4018...0x401F => {}, // TODO
             else => self.mapper.write(addr, val),
         }
     }
 
+    /// Create a mapper based on the cart's configuration.
     fn createMapper(allocator: Allocator, cart: *Cart, ppu: *PPU) !*Mapper {
         var kind = cart.header.getMapper();
-        if (kind == .nrom) {
-            var nrom = try allocator.create(NROM);
-            nrom.* = NROM.init(cart, ppu);
-            return &nrom.mapper;
+        switch (kind) {
+            .nrom => {
+                var nrom = try allocator.create(NROM);
+                nrom.* = NROM.init(cart, ppu);
+                return &nrom.mapper;
+            },
+
+            .mmc1 => {
+                var mmc1 = try allocator.create(MMC1);
+                mmc1.* = MMC1.init(cart, ppu);
+                return &mmc1.mapper;
+            },
         }
-        unreachable;
     }
 
     /// returns `true` if there is an NMI waiting to be serviced by the CPU.
@@ -151,6 +160,11 @@ pub const NESBus = struct {
             .nrom => {
                 var nrom = @fieldParentPtr(NROM, "mapper", self.mapper);
                 self.allocator.destroy(nrom);
+            },
+
+            .mmc1 => {
+                var mmc1 = @fieldParentPtr(MMC1, "mapper", self.mapper);
+                self.allocator.destroy(mmc1);
             },
         }
     }

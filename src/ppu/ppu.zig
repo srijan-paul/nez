@@ -494,7 +494,7 @@ pub const PPU = struct {
         self.pattern_table_shifter_lo.nextTile(self.pattern_lo);
         self.pattern_table_shifter_hi.nextTile(self.pattern_hi);
 
-        // Load the 2-bit attribute latch from the 8-bit attribute latch.
+        // Load the 2-bit palette latch from the 8-bit attribute latch.
         var tile_col: u8 = self.vram_addr.coarse_x;
         var tile_row: u8 = self.vram_addr.coarse_y;
 
@@ -744,7 +744,6 @@ pub const PPU = struct {
             },
 
             256 => {
-                // TODO: check draw_sprites
                 if (draw_bg) {
                     self.incrY();
                     self.incrCoarseX();
@@ -950,7 +949,6 @@ pub const PPU = struct {
         // STA OAMADDR
         // LDA #$02
         // STA OAMDMA
-        // TODO: make this async.
         var cpu_addr = page_start << 8;
         for (0..256) |_| {
             self.oam[self.oam_addr] = self.cpu.memRead(cpu_addr);
@@ -996,7 +994,6 @@ pub const PPU = struct {
         std.debug.assert(addr >= 0x2000 and addr < 0x4000);
         var register = addr & 0b111;
 
-        // TODO: emulate the PPU's memory access timing delay.
         return switch (register) {
             2 => self.readPPUStatus(),
             4 => self.oam[self.oam_addr],

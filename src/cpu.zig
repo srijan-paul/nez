@@ -335,28 +335,10 @@ pub const CPU = struct {
         self.A = @truncate(sum);
     }
 
-    fn dumpRegisters(self: *Self) ![]const u8 {
-        return std.fmt.allocPrint(
-            self.allocator,
-            "(A: {x} | X: {x} | Y: {x})",
-            .{ self.A, self.X, self.Y },
-        );
-    }
-
     /// Execute a single instruction.
     pub fn exec(self: *Self, instr: *const Instruction) !void {
         var op = instr[0];
         var mode: AddrMode = instr[1];
-
-        if (false) {
-            std.debug.print(
-                "${x}: {s}; ",
-                .{ self.PC - 1, @tagName(op) },
-            );
-            var regs = try self.dumpRegisters();
-            defer self.allocator.free(regs);
-            std.debug.print("{s}\n", .{regs});
-        }
 
         switch (op) {
             Op.ADC => self.adc(self.operand(instr)),
@@ -818,18 +800,6 @@ pub const CPU = struct {
             .p = @bitCast(self.StatusRegister),
             .ram = final_ram,
         };
-    }
-
-    pub fn dumpRAM(self: *Self) !void {
-        for (0..256) |i| {
-            var addr = 0x200 + @as(u16, @truncate(i));
-            if (i % 16 == 0) {
-                std.debug.print("\n", .{});
-                std.debug.print("${x}: ", .{addr});
-            }
-
-            std.debug.print("${x} ", .{self.memRead(addr)});
-        }
     }
 };
 
