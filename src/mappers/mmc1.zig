@@ -11,8 +11,8 @@ const FlagsControl = packed struct {
     /// 2: vertical; 3: horizontal
     mirror_mode: u2 = 0,
     /// 0,1: Switch 32KB at $8000, ignoring low bit of bank number.
-    /// 1: fix first bank at $8000, and switch 16KB bank at $C000.
-    /// 0: fix last bank at $C000, and switch 16KB bank at $8000.
+    /// 2: fix first bank at $8000, and switch 16KB bank at $C000.
+    /// 3: fix last bank at $C000, and switch 16KB bank at $8000.
     prg_rom_bank_mode: u2 = 3,
     /// 1: Switch two 4kb banks, 0: Switch 8KB banks at a time.
     chr_rom_is_4kb: bool = false,
@@ -118,7 +118,7 @@ pub const MMC1 = struct {
         switch (self.ctrl_register.prg_rom_bank_mode) {
             0, 1 => {
                 // Switch 32KB at $8000, ignoring low bit of bank number.
-                var bank_number = self.maskChrRomBank(self.prg_bank | 0b00001);
+                var bank_number = self.maskChrRomBank(self.prg_bank & 0b11110);
 
                 var bank1_start = @as(u32, bank_number) * 2 * PrgBankSize;
                 var bank1_end = bank1_start + PrgBankSize;
@@ -174,7 +174,6 @@ pub const MMC1 = struct {
     /// reach the shift register (addr).
     /// Ref: https://www.nesdev.org/wiki/MMC1#Registers
     fn writeRegister(self: *Self, addr: u16, value: u5) void {
-        std.debug.print("MMC1: Write to register {x}, {b}\n", .{ addr, value });
         switch (addr) {
             0x8000...0x9FFF => self.ctrl_register = @bitCast(value),
             0xA000...0xBFFF => self.writeChrBank0(value),
@@ -189,7 +188,7 @@ pub const MMC1 = struct {
         // when bit 7 of the load register is set:
         // 1. clear the SR.
         // 2. Ctrl = Ctrl | $0C
-        if (value & 0b1000_0000 == 1) {
+        if (value & 0b1000_0000 != 0) {
             self.shift_register = 0b10000;
             var ctrl: u5 = @bitCast(self.ctrl_register);
             self.ctrl_register = @bitCast(ctrl | 0x0C);
@@ -199,7 +198,7 @@ pub const MMC1 = struct {
 
         // check if the SR is full when this write is Done.
         // "full" = LSB is set to 1 of the shift register is set to 1.
-        var is_last_write = self.shift_register & 0b00001 == 1;
+        var is_last_write = self.shift_register & 0b00001 != 0;
 
         // Set the MSB of the shift register to the LSB of the value.
         self.shift_register =
