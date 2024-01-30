@@ -30,7 +30,8 @@ const FlagsControl = packed struct {
 /// we do 0b11111 & 0b00111 = 0b00111, which is a valid bank number less than 9.
 fn maskFromBankCount(bank_count: u8) u5 {
     return switch (bank_count) {
-        0...1 => 1,
+        0 => 0,
+        1 => 1,
         2...3 => 2,
         4...7 => 3,
         8...15 => 4,
@@ -152,14 +153,16 @@ pub const MMC1 = struct {
 
         if (self.ctrl_register.chr_rom_is_4kb) {
             // Switch two 4kb banks.
-            var bank1_start = @as(u32, self.chr_bank0) * ChrBankSize;
-            self.chr_rom_lo = self.cart.chr_rom[bank1_start .. bank1_start + ChrBankSize];
+            var bank0: u32 = self.maskChrRomBank(self.chr_bank0);
+            var bank0_start = bank0 * ChrBankSize;
+            self.chr_rom_lo = self.cart.chr_rom[bank0_start .. bank0_start + ChrBankSize];
 
-            var bank2_start = @as(u32, self.chr_bank1) * ChrBankSize;
-            self.chr_rom_hi = self.cart.chr_rom[bank2_start .. bank2_start + ChrBankSize];
+            var bank1: u32 = self.maskChrRomBank(self.chr_bank1);
+            var bank1_start = bank1 * ChrBankSize;
+            self.chr_rom_hi = self.cart.chr_rom[bank1_start .. bank1_start + ChrBankSize];
         } else {
             // Switch 8KB banks at a time.
-            var offset = @as(u32, self.chr_bank0) * 2 * ChrBankSize;
+            var offset = @as(u32, self.maskChrRomBank(self.chr_bank0)) * 2 * ChrBankSize;
             self.chr_rom_lo = self.cart.chr_rom[offset .. offset + ChrBankSize];
             self.chr_rom_hi = self.cart.chr_rom[offset + ChrBankSize .. offset + 2 * ChrBankSize];
         }
@@ -171,6 +174,7 @@ pub const MMC1 = struct {
     /// reach the shift register (addr).
     /// Ref: https://www.nesdev.org/wiki/MMC1#Registers
     fn writeRegister(self: *Self, addr: u16, value: u5) void {
+        std.debug.print("MMC1: Write to register {x}, {b}\n", .{ addr, value });
         switch (addr) {
             0x8000...0x9FFF => self.ctrl_register = @bitCast(value),
             0xA000...0xBFFF => self.writeChrBank0(value),
@@ -182,28 +186,39 @@ pub const MMC1 = struct {
 
     /// Write to the shift register.
     fn writeShiftRegister(self: *Self, addr: u16, value: u8) void {
-        // When the SR is full, any write to this register will:
-        // 1. Copy the contents of SR to an internal register depending on `addr`.
-        // 2. Clear the SR.
-        if (self.shift_register & 0b00001 == 1) {
-            // Copy the LSB into SR's MSB as usual.
-            self.shift_register >>= 1;
-            self.shift_register |= @truncate((value & 0b1) << 4);
-            self.writeRegister(addr, self.shift_register);
-
+        // when bit 7 of the load register is set:
+        // 1. clear the SR.
+        // 2. Ctrl = Ctrl | $0C
+        if (value & 0b1000_0000 == 1) {
             self.shift_register = 0b10000;
+            var ctrl: u5 = @bitCast(self.ctrl_register);
+            self.ctrl_register = @bitCast(ctrl | 0x0C);
+            self.updateBankOffsets();
             return;
         }
 
+        // check if the SR is full when this write is Done.
+        // "full" = LSB is set to 1 of the shift register is set to 1.
+        var is_last_write = self.shift_register & 0b00001 == 1;
+
         // Set the MSB of the shift register to the LSB of the value.
-        self.shift_register >>= 1;
-        self.shift_register |= @truncate((value & 0b1) << 4);
+        self.shift_register =
+            (self.shift_register >> 1) |
+            ((@as(u5, @truncate(value & 0b1))) << 4);
+
+        // When the SR is full, any write to this register will:
+        // 1. Copy the contents of SR to an internal register depending on `addr`.
+        // 2. Clear the SR.
+        if (is_last_write) {
+            self.writeRegister(addr, self.shift_register);
+            self.shift_register = 0b10000; // reset SR.
+        }
     }
 
     fn read(i_mapper: *Mapper, addr: u16) u8 {
         var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
         return switch (addr) {
-            0x0000...0x5FFF => std.debug.panic("Open bus behavior not emulated.\n", .{}),
+            0x0000...0x5FFF => std.debug.panic("Open bus reads not emulated.\n", .{}),
             0x6000...0x7FFF => self.cart.prg_ram[addr - 0x6000],
             0x8000...0xBFFF => self.prg_rom_lo[addr - 0x8000],
             0xC000...0xFFFF => self.prg_rom_hi[addr - 0xC000],
@@ -213,9 +228,9 @@ pub const MMC1 = struct {
     fn write(i_mapper: *Mapper, addr: u16, value: u8) void {
         var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
         switch (addr) {
+            0x0000...0x5FFF => std.debug.panic("Open bus writes not emulated.\n", .{}),
             0x6000...0x7FFF => self.cart.prg_ram[addr - 0x6000] = value,
             0x8000...0xFFFF => self.writeShiftRegister(addr, value),
-            else => std.debug.panic("MMC1: Bad write address {d}\n", .{addr}),
         }
     }
 
