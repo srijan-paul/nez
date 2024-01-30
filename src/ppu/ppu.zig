@@ -302,7 +302,7 @@ pub const PPU = struct {
     fn fetchFromPatternTable(self: *Self, tile: u16, is_low_plane: bool, pt_number: u1, row: u8) u8 {
         std.debug.assert(row < 8);
         var pt_addr = (@as(u16, pt_number) * 0x1000) + (tile * 16) + row;
-        return if (is_low_plane) self.busRead(pt_addr) else self.busRead(pt_addr + 8);
+        return if (is_low_plane) self.readByte(pt_addr) else self.readByte(pt_addr + 8);
     }
 
     /// Fetch a byte of data from the pattern table for background use.
@@ -339,7 +339,7 @@ pub const PPU = struct {
             coarse_y * 32 +
             coarse_x;
 
-        return self.busRead(nt_addr);
+        return self.readByte(nt_addr);
     }
 
     /// Fetch the 8-bit attribute byte for the tile at the current VRAM address.
@@ -360,7 +360,7 @@ pub const PPU = struct {
         var at_addr = at_base_addr + at_offset;
 
         std.debug.assert(at_addr >= at_base_addr and at_addr < at_base_addr + 64);
-        return self.busRead(at_addr);
+        return self.readByte(at_addr);
     }
 
     /// Increment the fine and coarse Y based on the current clock cycle.
@@ -475,7 +475,7 @@ pub const PPU = struct {
             color_addr = self.fetchSpritePixel(color_addr);
         }
 
-        var color_id = self.busRead(color_addr);
+        var color_id = self.readByte(color_addr);
         var color = Palette[color_id];
 
         std.debug.assert(self.frame_buffer_pos < self.frame_buffer.len);
@@ -880,7 +880,7 @@ pub const PPU = struct {
     /// on the value of a control bit in the PPUCTRL register.
     fn writePPUDATA(self: *Self, value: u8) void {
         var addr: u15 = @bitCast(self.vram_addr);
-        self.busWrite(addr, value);
+        self.mapper.ppuWrite(addr, value);
         var addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
         addr = @addWithOverflow(addr, addr_increment)[0];
         self.vram_addr = @bitCast(addr);
@@ -892,7 +892,7 @@ pub const PPU = struct {
         var addr: u15 = @bitCast(self.vram_addr);
 
         var data = self.ppu_data_latch;
-        self.ppu_data_latch = self.busRead(addr);
+        self.ppu_data_latch = self.readByte(addr);
 
         if (addr >= 0x3F00) {
             // Reading from palette RAM is instant.
@@ -905,9 +905,10 @@ pub const PPU = struct {
         return data;
     }
 
-    fn busWrite(self: *Self, address: u16, value: u8) void {
+    /// write a byte of data to the ppu's internal RAM.
+    pub fn writeRAM(self: *Self, address: u16, value: u8) void {
         var addr = address; // parameters are immutable in Zig -_-
-        if (addr < 0x2000) return self.mapper.ppuWrite(addr, value);
+        std.debug.assert(addr >= 0x2000);
 
         if (addr >= 0x3000 and addr < 0x3F00) {
             addr = addr - 0x1000;
@@ -922,9 +923,10 @@ pub const PPU = struct {
         self.ppu_ram[addr] = value;
     }
 
-    fn busRead(self: *Self, address: u16) u8 {
+    /// read a byte of data the ppu's internal RAM.
+    pub fn readRAM(self: *Self, address: u16) u8 {
         var addr = address; // parameters are immutable in Zig -_-
-        if (addr < 0x2000) return self.mapper.ppuRead(addr);
+        std.debug.assert(addr >= 0x2000);
 
         if (addr >= 0x3000 and addr < 0x3F00) {
             addr = addr - 0x1000;
@@ -935,6 +937,26 @@ pub const PPU = struct {
         if (addr >= 0x3F00 and (addr - 0x3F00) % 4 == 0) addr = 0x3F00;
 
         return self.ppu_ram[addr];
+    }
+
+    /// Write a byte of data to any address in the PPU address space (ROM/RAM).
+    fn readByte(self: *Self, addr: u16) u8 {
+        return switch (addr) {
+            0x0000...0x3EFF => self.mapper.ppuRead(addr),
+            // palette memory can be accessed directly. No need to go through mapper.
+            0x3F00...0x3FFF => self.readRAM(addr),
+            else => 0,
+        };
+    }
+
+    /// Write a byte of data to any address in the PPU address space (ROM/RAM).
+    fn writeByte(self: *Self, addr: u16, value: u8) void {
+        switch (addr) {
+            0x0000...0x3EFF => self.mapper.ppuWrite(addr, value),
+            // palette memory can be accessed directly. No need to go through mapper.
+            0x3F00...0x3FFF => self.writeRAM(addr, value),
+            else => {},
+        }
     }
 
     /// Perform a DMA transfer of 256 bytes from CPU memory to OAM memory.
@@ -1013,7 +1035,7 @@ pub const PPU = struct {
         defer allocator.free(buf);
 
         for (nametable_base_addr..nametable_base_addr + nametable_size) |i| {
-            var byte = self.busRead(@truncate(i));
+            var byte = self.readByte(@truncate(i));
 
             if (i % 32 == 0) {
                 var newBuf = try std.fmt.allocPrint(allocator, "\n[${x}]: ", .{i});
@@ -1067,7 +1089,7 @@ pub const PPU = struct {
         var colors_buf: [4]u8 = undefined;
         for (0..4) |i| {
             var iu16: u16 = @truncate(i);
-            colors_buf[i] = self.busRead(
+            colors_buf[i] = self.readRAM(
                 base_addr + // base address of PPU palette RAM
                     (palette_size * palette_index) + // offset to the palette
                     iu16, // offset to the color
@@ -1103,8 +1125,8 @@ pub const PPU = struct {
                 for (0..8) |pxrow| { // a row of pixels within the tile.
                     var px_row: u16 = @truncate(pxrow);
                     // each row is 2 bytes – a low byte and high byte.
-                    var lo_byte = self.busRead(pt_addr + px_row);
-                    var hi_byte = self.busRead(pt_addr + px_row + 8);
+                    var lo_byte = self.mapper.ppuRead(pt_addr + px_row);
+                    var hi_byte = self.mapper.ppuRead(pt_addr + px_row + 8);
 
                     // loop over each pixel in the first row of the 8x8 tile.
                     for (0..8) |px| {
@@ -1113,7 +1135,7 @@ pub const PPU = struct {
 
                         var color_index = hi_bit << 1 | lo_bit;
                         var addr = bg_palette_base_addr + 16 * palette_index + color_index;
-                        var color_id = self.busRead(addr);
+                        var color_id = self.readByte(addr);
 
                         // address of the pixel in the buffer.
                         // it took me a good while to figure this out. OOF
@@ -1142,14 +1164,14 @@ pub const PPU = struct {
             var palette_index: u16 = attrs.palette;
             for (0..8) |pxrow| {
                 var px_row: u16 = @truncate(pxrow);
-                var lo_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row);
-                var hi_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row + 8);
+                var lo_byte = self.readByte(pt_base_addr + tile_index * 16 + px_row);
+                var hi_byte = self.readByte(pt_base_addr + tile_index * 16 + px_row + 8);
                 for (0..8) |px| {
                     var lo_bit = (lo_byte >> @truncate(7 - px)) & 0b1;
                     var hi_bit = (hi_byte >> @truncate(7 - px)) & 0b1;
                     var color_index = hi_bit << 1 | lo_bit;
                     var addr = fg_palette_base_addr + palette_size * palette_index + color_index;
-                    var color_id = self.busRead(addr);
+                    var color_id = self.readByte(addr);
 
                     var bufrow = (sprite_index / sprites_per_row) * 8 + px_row;
                     var bufcol = (sprite_index % sprites_per_col) * 8 + px;
@@ -1171,15 +1193,15 @@ pub const PPU = struct {
         var palette_index = attrs.palette;
         for (0..8) |pxrow| {
             var px_row: u16 = @truncate(pxrow);
-            var lo_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row);
-            var hi_byte = self.busRead(pt_base_addr + tile_index * 16 + px_row + 8);
+            var lo_byte = self.readByte(pt_base_addr + tile_index * 16 + px_row);
+            var hi_byte = self.readByte(pt_base_addr + tile_index * 16 + px_row + 8);
             for (0..8) |px_| {
                 var pxcol: u8 = @truncate(px_);
                 var lo_bit = (lo_byte >> @truncate(7 - pxcol)) & 0b1;
                 var hi_bit = (hi_byte >> @truncate(7 - pxcol)) & 0b1;
                 var color_index = hi_bit << 1 | lo_bit;
                 var addr = fg_palette_base_addr + palette_size * palette_index + color_index;
-                var color_id = self.busRead(addr);
+                var color_id = self.readByte(addr);
 
                 var color = Palette[color_id];
 

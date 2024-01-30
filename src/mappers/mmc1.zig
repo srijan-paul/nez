@@ -94,6 +94,8 @@ pub const MMC1 = struct {
         return bank_number & mask;
     }
 
+    fn writeControl() void {}
+
     fn writeChrBank0(self: *Self, value: u5) void {
         self.chr_bank0 = self.maskChrRomBank(value);
         self.updateBankOffsets();
@@ -258,15 +260,21 @@ pub const MMC1 = struct {
     /// Read a byte from the cartridge's CHR ROM.
     fn ppuRead(i_mapper: *Mapper, addr: u16) u8 {
         var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
-        std.debug.assert(addr < 0x2000);
-        if (self.has_chr_ram) return self.cart.chr_ram[addr];
-        return self.cart.chr_rom[addr];
+        if (addr < 0x2000) {
+            if (self.has_chr_ram) return self.cart.chr_ram[addr];
+            return self.cart.chr_rom[addr];
+        }
+
+        return self.ppu.readRAM(addr);
     }
 
     /// Write a byte to PPU memory.
     fn ppuWrite(i_mapper: *Mapper, addr: u16, value: u8) void {
         var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
-        std.debug.assert(addr < 0x2000);
-        if (self.has_chr_ram) self.cart.chr_ram[addr] = value;
+        if (addr < 0x2000) {
+            if (self.has_chr_ram) self.cart.chr_ram[addr] = value;
+            return;
+        }
+        self.ppu.writeRAM(addr, value);
     }
 };

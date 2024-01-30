@@ -63,13 +63,16 @@ pub const NROM = struct {
     /// Read a byte from the cartridge's CHR ROM.
     fn ppuRead(i_mapper: *Mapper, addr: u16) u8 {
         var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
-        return self.cart.chr_rom[addr];
+        if (addr < 0x2000) return self.cart.chr_rom[addr];
+        return self.ppu.readRAM(addr);
     }
 
     /// Write a byte to PPU memory.
     fn ppuWrite(i_mapper: *Mapper, addr: u16, value: u8) void {
         var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
-        self.ppu.ppu_ram[addr] = value;
+        // CHR ROM is read-only.
+        if (addr < 0x2000) return;
+        self.ppu.writeRAM(addr, value);
     }
 
     /// Create a new mapper that operates on `cart`.
