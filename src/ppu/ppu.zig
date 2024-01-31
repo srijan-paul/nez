@@ -605,8 +605,10 @@ pub const PPU = struct {
     /// copy the first 8 sprites on current scanline from primary OAM to secondary OAM.
     /// These sprites are then rendered in the next scanline.
     fn copySpritesToSecondaryOAM(self: *Self) void {
-        var num_sprites: u8 = 0;
         self.next_scanline_has_sprite0 = false;
+
+        var sprite_height: u16 = if (self.ppu_ctrl.sprite_is_8x16) 16 else 8;
+        var num_sprites: u8 = 0;
         for (0..64) |sprite_index| {
             // If we've already found 8 sprites, stop copying.
             if (num_sprites == 8) break;
@@ -615,7 +617,7 @@ pub const PPU = struct {
             var y: u16 = self.oam[oam_index];
             var screen_y = self.scanline;
 
-            var is_visible_on_line = y <= screen_y and (y + 8) > screen_y;
+            var is_visible_on_line = y <= screen_y and (y + sprite_height) > screen_y;
             if (!is_visible_on_line) continue;
 
             // Does this scanline contain the 0th sprite from OAM?
@@ -656,8 +658,12 @@ pub const PPU = struct {
                 var attrs: SpriteAttributes = @bitCast(self.secondary_oam[j + 2]);
                 var sprite_x = self.secondary_oam[j + 3];
 
-                std.debug.assert(self.scanline - sprite_y < 8);
                 var row: u8 = @truncate(self.scanline - sprite_y);
+                if (row > 7) {
+                    row -= 8;
+                    tile_index = @addWithOverflow(tile_index, 1)[0];
+                }
+
                 if (attrs.flip_vert) {
                     row = 7 - row;
                 }
@@ -725,13 +731,7 @@ pub const PPU = struct {
             self.oam_addr = 0;
         }
 
-        if (self.ppu_mask.draw_sprites) {
-            if (self.ppu_ctrl.sprite_is_8x16) {
-                // TODO: support 8x16 sprites.
-                std.debug.panic("8x16 mode not supported", .{});
-            }
-            self.spriteEval();
-        }
+        if (self.ppu_mask.draw_sprites) self.spriteEval();
 
         var subcycle = self.cycle % 8;
         switch (self.cycle) {

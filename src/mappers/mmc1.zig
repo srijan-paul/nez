@@ -235,7 +235,6 @@ pub const MMC1 = struct {
         }
     }
 
-    /// Create a new mapper that operates on `cart`.
     pub fn init(cart: *Cart, ppu: *PPU) Self {
         var self = Self{
             .ppu = ppu,
@@ -244,6 +243,7 @@ pub const MMC1 = struct {
             .prg_rom_bank_count = @truncate(cart.header.prg_rom_banks),
             .chr_rom_bank_count = @truncate(cart.header.chr_rom_size),
             .mapper = Mapper.init(read, write, ppuRead, ppuWrite),
+            // these are initialized when `updateBankOffsets` is called below.
             .prg_rom_lo = undefined,
             .prg_rom_hi = undefined,
             .chr_rom_lo = undefined,
