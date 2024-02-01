@@ -94,25 +94,12 @@ pub const MMC1 = struct {
         return bank_number & mask;
     }
 
-    fn writeControl() void {}
-
-    fn writeChrBank0(self: *Self, value: u5) void {
-        self.chr_bank0 = self.maskChrRomBank(value);
-        self.updateBankOffsets();
-    }
-
-    fn writeChrBank1(self: *Self, value: u5) void {
-        self.chr_bank1 = self.maskChrRomBank(value);
-        self.updateBankOffsets();
-    }
-
     fn writePrgBank(self: *Self, value: u5) void {
         var bank = value;
         if (bank >= self.prg_rom_bank_count) {
             bank = @call(.always_inline, maskFromBankCount, .{self.prg_rom_bank_count});
         }
         self.prg_bank = bank;
-        self.updateBankOffsets();
     }
 
     /// Update the memory-maps for PRG and CHR banks based on the current control register.
@@ -178,11 +165,12 @@ pub const MMC1 = struct {
     fn writeRegister(self: *Self, addr: u16, value: u5) void {
         switch (addr) {
             0x8000...0x9FFF => self.ctrl_register = @bitCast(value),
-            0xA000...0xBFFF => self.writeChrBank0(value),
-            0xC000...0xDFFF => self.writeChrBank1(value),
+            0xA000...0xBFFF => self.chr_bank0 = self.maskChrRomBank(value),
+            0xC000...0xDFFF => self.chr_bank1 = self.maskChrRomBank(value),
             0xE000...0xFFFF => self.writePrgBank(value),
             else => std.debug.panic("MMC1: Bad register address", .{}),
         }
+        self.updateBankOffsets();
     }
 
     /// Write to the shift register.

@@ -1171,7 +1171,6 @@ pub const PPU = struct {
 
     /// Loads foreground sprite color data into a buffer (Used for debugging).
     pub fn getSpriteData(self: *Self, buf: []u8) void {
-        // TODO: support 8x16 mode.
         std.debug.assert(buf.len == 64 * 8 * 8); // 64 sprites, each is 8x8
         // decide the pattern table to use for the sprites based on the PPUCTRL register
         var pt_base_addr: u16 = if (self.ppu_ctrl.pattern_sprite) 0x1000 else 0x0000;
@@ -1204,7 +1203,6 @@ pub const PPU = struct {
 
     /// Load the colors of a sprite into a buffer.
     pub fn getSprite(self: *Self, oam_index: u8, buf: []u8) void {
-        // TODO: support 8x16 mode.
         std.debug.assert(buf.len == 8 * 8 * 3);
         var pt_base_addr: u16 = if (self.ppu_ctrl.pattern_sprite) 0x1000 else 0x0000;
         var tile_index: u16 = self.oam[oam_index * 4 + 1];

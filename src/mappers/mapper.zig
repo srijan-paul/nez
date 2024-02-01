@@ -5,6 +5,13 @@ pub const MapperKind = enum {
     mmc1,
 };
 
+pub const MirroringKind = enum {
+    horizontal,
+    vertical,
+    one_screen_lower,
+    one_screen_upper,
+};
+
 /// NES Mapper interface.
 /// Zig interfaces are awkward :S
 pub const Mapper = struct {
