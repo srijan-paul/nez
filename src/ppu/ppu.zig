@@ -71,6 +71,9 @@ pub const PPU = struct {
     /// and the CPU needs to handle it.
     is_nmi_pending: bool = false,
 
+    /// A flag that tracks whether the current frame number is odd or even.
+    is_even_frame: bool = false,
+
     /// In reality, the PPU RAM is only 2kB in size.
     /// $3000 - $EFFF is a mirror of $2000 - $2EFF.
     /// $0000 - $1FFF is mapped to the CHR ROM.
@@ -470,7 +473,11 @@ pub const PPU = struct {
 
     /// Write a pixel to the frame buffer.
     fn renderPixel(self: *Self) void {
-        var color_addr = self.fetchBGPixel();
+        var color_addr = if (self.ppu_mask.draw_bg)
+            self.fetchBGPixel()
+        else
+            bg_palette_base_addr;
+
         if (self.ppu_mask.draw_sprites) {
             color_addr = self.fetchSpritePixel(color_addr);
         }
@@ -581,11 +588,11 @@ pub const PPU = struct {
     /// This should *not* be called for the pre-render scanline.
     fn visibleDot(self: *Self, subcycle: u16) void {
         // Fetch the AT/PT/NT data for the next tile.
-        self.fetchBgTile(subcycle);
+        if (self.ppu_mask.draw_bg) self.fetchBgTile(subcycle);
         // On every visible dot of a visible scanline, render a pixel.
         self.renderPixel();
         // shift the background registers by one bit.
-        self.shiftBgRegsiters();
+        if (self.ppu_mask.draw_bg) self.shiftBgRegsiters();
     }
 
     /// Copy the vertical bits from the `t` register into the `v` register.
@@ -711,10 +718,8 @@ pub const PPU = struct {
             self.this_scanline_has_sprite0 = self.next_scanline_has_sprite0;
             self.next_scanline_has_sprite0 = false;
 
-            if (draw_bg) {
-                self.renderPixel();
-                self.shiftBgRegsiters();
-            }
+            self.renderPixel();
+            if (draw_bg) self.shiftBgRegsiters();
             return;
         }
 
@@ -738,9 +743,7 @@ pub const PPU = struct {
             // 1 -> 255 are the visible dots.
             // On these dots, one pixel is rendered to the screen.
             1...255 => {
-                if (draw_bg) {
-                    self.visibleDot(subcycle);
-                }
+                self.visibleDot(subcycle);
             },
 
             256 => {
@@ -774,16 +777,32 @@ pub const PPU = struct {
         }
     }
 
+    /// Set some internal state to prepare for the frame (that is generally done on dot 0),
+    /// then skip the 0th dot by setting the cycle to 1.
+    fn skip_cycle_0(self: *Self) void {
+        // cycle 0 is not skipped if rendering is disabled.
+        if (self.ppu_mask.draw_bg and self.ppu_mask.draw_sprites) return;
+        self.this_scanline_has_sprite0 = self.next_scanline_has_sprite0;
+        self.next_scanline_has_sprite0 = false;
+        self.frame_buffer_pos = 1;
+        self.cycle = 1;
+    }
+
     /// Excute a single clock cycle of the PPU.
     pub fn tick(self: *PPU) void {
-        // TODO: odd/even frame shenanigans.
+        // increment cycle and scanline.
         self.cycle += 1;
         if (self.cycle > 340) {
             self.cycle = 0;
             self.scanline += 1;
-            if (self.scanline > 261) {
-                self.scanline = 0;
-            }
+            if (self.scanline > 261) self.scanline = 0;
+        }
+
+        // On even frames, skip the first cycle of the first scanline.
+
+        if (self.cycle == 0 and self.scanline == 0) {
+            self.is_even_frame = !self.is_even_frame;
+            if (self.is_even_frame) self.skip_cycle_0();
         }
 
         switch (self.scanline) {
