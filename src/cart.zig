@@ -197,12 +197,6 @@ pub const Cart = struct {
     }
 };
 
-fn foo(allocator: Allocator) void {
-    var cart = try allocator.create(Cart);
-    var any: *anyopaque = &cart;
-    allocator.free(any);
-}
-
 test "Cartridge loading: header" {
     var cart = try Cart.loadFromFile(T.allocator, "roms/beepboop.nes");
     defer cart.deinit();
