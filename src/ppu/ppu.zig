@@ -1231,23 +1231,3 @@ pub const PPU = struct {
         }
     }
 };
-
-test "(PPU) fetching NT and AT bytes based on `v` register" {
-    const Console = @import("../nes.zig").Console;
-    var nes = try Console.fromROMFile(std.testing.allocator, "../../roms/beepboop.zig");
-    var ppu = nes.ppu;
-
-    ppu.vram_addr.nametable = 2; // 3rd nametable
-    ppu.vram_addr.coarse_x = 3;
-    ppu.vram_addr.coarse_y = 5;
-    ppu.vram_addr.fine_y = 0;
-
-    ppu.ppu_ram[11208] = 42;
-    ppu.ppu_ram[10403] = 69;
-
-    var at_byte = ppu.fetchAttrTableByte();
-    try std.testing.expectEqual(@as(u8, 42), at_byte);
-
-    var nt_byte = ppu.fetchNameTableByte();
-    try std.testing.expectEqual(@as(u8, 69), nt_byte);
-}

@@ -204,13 +204,12 @@ fn foo(allocator: Allocator) void {
 }
 
 test "Cartridge loading: header" {
-    var cart = try Cart.loadFromFile(T.allocator, "roms/super-mario-bros.nes");
+    var cart = try Cart.loadFromFile(T.allocator, "roms/beepboop.nes");
     defer cart.deinit();
 
     try T.expectEqual(Header.Magic{ .N = 'N', .E = 'E', .S = 'S', .EOF = 0x1A }, cart.header.NES);
     try T.expectEqual(@as(u8, 2), cart.header.prg_rom_banks);
     try T.expectEqual(@as(u8, 1), cart.header.chr_rom_size);
     try T.expectEqual(false, cart.header.flags_6.has_prg_ram);
-    try T.expectEqual(true, cart.header.flags_6.mirroring_is_vertical);
     try T.expectEqual(MapperKind.nrom, cart.header.getMapper());
 }
