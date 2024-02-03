@@ -2,6 +2,7 @@ const Cart = @import("./cart.zig").Cart;
 const mapper_mod = @import("./mappers/mapper.zig");
 const NROM = @import("./mappers/nrom.zig").NROM;
 const MMC1 = @import("./mappers/mmc1.zig").MMC1;
+const UxROM = @import("./mappers/UxROM.zig");
 const std = @import("std");
 const Gamepad = @import("./gamepad.zig");
 
@@ -126,6 +127,12 @@ pub const NESBus = struct {
                 mmc1.* = MMC1.init(cart, ppu);
                 return &mmc1.mapper;
             },
+
+            .UxROM => {
+                var uxROM = try allocator.create(UxROM);
+                uxROM.* = UxROM.init(cart, ppu);
+                return &uxROM.mapper;
+            },
         }
     }
 
@@ -165,6 +172,11 @@ pub const NESBus = struct {
             .mmc1 => {
                 var mmc1 = @fieldParentPtr(MMC1, "mapper", self.mapper);
                 self.allocator.destroy(mmc1);
+            },
+
+            .UxROM => {
+                var uxROM = @fieldParentPtr(UxROM, "mapper", self.mapper);
+                self.allocator.destroy(uxROM);
             },
         }
     }

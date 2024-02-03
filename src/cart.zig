@@ -113,6 +113,7 @@ pub const Header = packed struct {
         return switch (mapper_code) {
             0 => MapperKind.nrom,
             1 => MapperKind.mmc1,
+            2 => MapperKind.UxROM,
             else => std.debug.panic("Unsupported mapper: {d}", .{mapper_code}),
         };
     }

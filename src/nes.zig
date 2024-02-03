@@ -77,14 +77,6 @@ pub const Console = struct {
         }
     }
 
-    pub fn debugTick(self: *Self) !void {
-        self.cpu.cycles_to_wait = 0;
-        try self.cpu.tick();
-        for (0..3) |_| {
-            self.ppu.tick();
-        }
-    }
-
     // Update the console state.
     // `dt`: time elapsed since last call to update in ms.
     // Retrurns the number of CPU cycles executed.

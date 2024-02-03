@@ -3,6 +3,7 @@ const Mapper = @import("./mapper.zig").Mapper;
 const Cart = @import("../cart.zig").Cart;
 const CPU = @import("../cpu.zig").CPU;
 const PPU = @import("../ppu/ppu.zig").PPU;
+const util = @import("../util.zig");
 
 /// 5 bit Control register.
 const FlagsControl = packed struct {
@@ -21,26 +22,6 @@ const FlagsControl = packed struct {
         std.debug.assert(@bitSizeOf(FlagsControl) == 5);
     }
 };
-
-/// A bank register (PRG or CHR) has 5 bits.
-/// Meaning one could theoretically access bank number 31 (0b11111) in a cart that only has
-/// one or two banks. To prevent this, we mask away the high bits when the bank number is too large.
-/// The mask to use depends on the number of banks present in the cart.
-/// If there are 9 banks in the cart, but the programmer tries to access bank #31,
-/// we do 0b11111 & 0b00111 = 0b00111, which is a valid bank number less than 9.
-fn maskFromBankCount(bank_count: u8) u5 {
-    return switch (bank_count) {
-        0 => 0,
-        1 => 1,
-        2...3 => 2,
-        4...7 => 3,
-        8...15 => 4,
-        16...31 => 5,
-        32...63 => 6,
-        64...127 => 7,
-        128...255 => 8,
-    };
-}
 
 /// The iNES format assigns mapper 0 to the NROM board,
 /// which is the most common board type.
@@ -90,14 +71,14 @@ pub const MMC1 = struct {
         // Since the bank registers are 5-bits wide, they can have a value of upto 32.
         // No cart has that many banks present, so we mask away the high bits
         // when the bank number is too large.
-        var mask = @call(.always_inline, maskFromBankCount, .{self.chr_rom_bank_count});
+        var mask = @call(.always_inline, util.bankingMask, .{self.chr_rom_bank_count});
         return bank_number & mask;
     }
 
     fn writePrgBank(self: *Self, value: u5) void {
         var bank = value;
         if (bank >= self.prg_rom_bank_count) {
-            bank = @call(.always_inline, maskFromBankCount, .{self.prg_rom_bank_count});
+            bank = @call(.always_inline, util.bankingMask, .{self.prg_rom_bank_count});
         }
         self.prg_bank = bank;
     }
@@ -157,6 +138,17 @@ pub const MMC1 = struct {
         }
     }
 
+    /// Write to the 5-bit control register.
+    fn writeControl(self: *Self, value: u5) void {
+        self.ctrl_register = @bitCast(value);
+        switch (self.ctrl_register.mirror_mode) {
+            0 => self.mapper.ppu_mirror_mode = .one_screen_lower,
+            1 => self.mapper.ppu_mirror_mode = .one_screen_upper,
+            2 => self.mapper.ppu_mirror_mode = .vertical,
+            3 => self.mapper.ppu_mirror_mode = .horizontal,
+        }
+    }
+
     /// Write to an internal register.
     /// This subroutine is called whenever a full shift register (xxxx1) is written to.
     /// The destination register is determined by bit 13 and 14 of the address used to
@@ -164,7 +156,7 @@ pub const MMC1 = struct {
     /// Ref: https://www.nesdev.org/wiki/MMC1#Registers
     fn writeRegister(self: *Self, addr: u16, value: u5) void {
         switch (addr) {
-            0x8000...0x9FFF => self.ctrl_register = @bitCast(value),
+            0x8000...0x9FFF => self.writeControl(value),
             0xA000...0xBFFF => self.chr_bank0 = self.maskChrRomBank(value),
             0xC000...0xDFFF => self.chr_bank1 = self.maskChrRomBank(value),
             0xE000...0xFFFF => self.writePrgBank(value),
@@ -241,28 +233,34 @@ pub const MMC1 = struct {
         // Initialize the PRG and CHR address spaces.
         // Initially, the PRG ROM bank mode is 3, and the CHR ROM bank mode is 0.
         self.updateBankOffsets();
-
         return self;
     }
 
     /// Read a byte from the cartridge's CHR ROM.
-    fn ppuRead(i_mapper: *Mapper, addr: u16) u8 {
-        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
+    fn ppuRead(m: *Mapper, addr: u16) u8 {
+        var self: *Self = @fieldParentPtr(Self, "mapper", m);
         if (addr < 0x2000) {
             if (self.has_chr_ram) return self.cart.chr_ram[addr];
             return self.cart.chr_rom[addr];
         }
 
+        if (addr < 0x3000)
+            return self.ppu.readRAM(m.unmirror_nametable(addr));
+
         return self.ppu.readRAM(addr);
     }
 
     /// Write a byte to PPU memory.
-    fn ppuWrite(i_mapper: *Mapper, addr: u16, value: u8) void {
-        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
+    fn ppuWrite(m: *Mapper, addr: u16, value: u8) void {
+        var self: *Self = @fieldParentPtr(Self, "mapper", m);
         if (addr < 0x2000) {
             if (self.has_chr_ram) self.cart.chr_ram[addr] = value;
             return;
         }
+
+        if (addr < 0x3000)
+            self.ppu.writeRAM(m.unmirror_nametable(addr), value);
+
         self.ppu.writeRAM(addr, value);
     }
 };

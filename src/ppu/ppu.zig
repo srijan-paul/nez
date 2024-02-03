@@ -912,11 +912,8 @@ pub const PPU = struct {
 
         var data = self.ppu_data_latch;
         self.ppu_data_latch = self.readByte(addr);
-
-        if (addr >= 0x3F00) {
-            // Reading from palette RAM is instant.
-            data = self.ppu_data_latch;
-        }
+        // Reading from palette RAM is instant.
+        if (addr >= 0x3F00) data = self.ppu_data_latch;
 
         var addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
         addr = @addWithOverflow(addr, addr_increment)[0];

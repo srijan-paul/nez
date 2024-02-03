@@ -3,9 +3,10 @@ const Cart = @import("../cart.zig").Cart;
 pub const MapperKind = enum {
     nrom,
     mmc1,
+    UxROM,
 };
 
-pub const MirroringKind = enum {
+pub const MirrorMode = enum {
     horizontal,
     vertical,
     one_screen_lower,
@@ -22,6 +23,7 @@ pub const Mapper = struct {
     pub const WriteFn = *const fn (*Mapper, u16, u8) void;
     pub const PPUWriteFn = *const fn (*Mapper, u16, u8) void;
 
+    ppu_mirror_mode: MirrorMode = .horizontal,
     /// A pointer to the read-function implemented by
     /// the concrete mapper type.
     readFn: ReadFn,
@@ -55,6 +57,15 @@ pub const Mapper = struct {
             .writeFn = writeFn,
             .ppuReadFn = ppuReadFn,
             .ppuWriteFn = ppuWriteFn,
+        };
+    }
+
+    pub fn unmirror_nametable(self: *Self, a: u16) u16 {
+        return switch (self.ppu_mirror_mode) {
+            .one_screen_lower => 0x2000 + a % 0x400,
+            .one_screen_upper => 0x2400 + a % 0x400,
+            .vertical => 0x2000 + a % 0x800,
+            .horizontal => a & 0x2800 + a % 0x400,
         };
     }
 
