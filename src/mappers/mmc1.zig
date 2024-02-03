@@ -259,7 +259,7 @@ pub const MMC1 = struct {
         }
 
         if (addr < 0x3000)
-            self.ppu.writeRAM(m.unmirror_nametable(addr), value);
+            return self.ppu.writeRAM(m.unmirror_nametable(addr), value);
 
         self.ppu.writeRAM(addr, value);
     }

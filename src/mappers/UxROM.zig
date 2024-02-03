@@ -69,8 +69,10 @@ fn ppuWrite(m: *Mapper, addr: u16, value: u8) void {
         return;
     }
 
-    if (addr < 0x3000)
+    if (addr < 0x3000) {
         self.ppu.writeRAM(m.unmirror_nametable(addr), value);
+        return;
+    }
 
     self.ppu.writeRAM(addr, value);
 }
@@ -83,6 +85,11 @@ pub fn init(cart: *Cart, ppu: *PPU) Self {
         .mapper = Mapper.init(read, write, ppuRead, ppuWrite),
         .has_chr_ram = cart.header.chr_rom_size == 0,
     };
+
+    self.mapper.ppu_mirror_mode = if (self.cart.header.flags_6.mirroring_is_vertical)
+        .vertical
+    else
+        .horizontal;
 
     var last_bank_start = @as(u32, (self.prg_rom_bank_count - 1)) * 0x4000;
     var last_bank_end = last_bank_start + 0x4000;

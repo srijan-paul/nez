@@ -61,12 +61,16 @@ pub const Mapper = struct {
     }
 
     pub fn unmirror_nametable(self: *Self, a: u16) u16 {
-        return switch (self.ppu_mirror_mode) {
-            .one_screen_lower => 0x2000 + a % 0x400,
-            .one_screen_upper => 0x2400 + a % 0x400,
-            .vertical => 0x2000 + a % 0x800,
-            .horizontal => a & 0x2800 + a % 0x400,
-        };
+        switch (self.ppu_mirror_mode) {
+            .one_screen_lower => return 0x2000 + a % 0x400,
+            .one_screen_upper => return 0x2400 + a % 0x400,
+            .vertical => return 0x2000 + a % 0x800,
+            .horizontal => {
+                var base: u16 = if (a >= 0x2800) 0x2800 else 0x2000;
+                var offset = a % 0x400;
+                return base + offset;
+            },
+        }
     }
 
     /// Read a byte of data from cartridge memory.
