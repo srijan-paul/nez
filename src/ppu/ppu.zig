@@ -561,7 +561,7 @@ pub const PPU = struct {
     /// Ref: https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
     fn fetchBgTile(self: *Self, subcycle: u16) void {
         std.debug.assert(subcycle < 8);
-        // On every clock cycle, copy the background palette latches into palette shift registers.
+        // On every clock cycle, copy the LSB of background palette latches into palette shift registers.
         self.loadPaletteShifters();
         switch (subcycle) {
             // fetch the name table byte.
@@ -666,8 +666,10 @@ pub const PPU = struct {
                 var sprite_x = self.secondary_oam[j + 3];
 
                 var row: u8 = @truncate(self.scanline - sprite_y);
-                if (row > 7) {
-                    row -= 8;
+
+                var is_second_half = row >= 8; // for 8x16 sprites
+                if (is_second_half) row -= 8;
+                if ((is_second_half and !attrs.flip_vert) or (!is_second_half and attrs.flip_vert)) { // no Xor operator with bools :(
                     tile_index = @addWithOverflow(tile_index, 1)[0];
                 }
 

@@ -60,6 +60,7 @@ pub const Mapper = struct {
         };
     }
 
+    /// Resolve a nametable address, taking mirroring into account.
     pub fn unmirror_nametable(self: *Self, a: u16) u16 {
         switch (self.ppu_mirror_mode) {
             .one_screen_lower => return 0x2000 + a % 0x400,

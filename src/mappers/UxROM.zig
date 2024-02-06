@@ -51,8 +51,9 @@ fn ppuRead(m: *Mapper, addr: u16) u8 {
         return self.cart.chr_rom[addr];
     }
 
-    if (addr < 0x3000)
+    if (addr < 0x3000) {
         return self.ppu.readRAM(m.unmirror_nametable(addr));
+    }
 
     return self.ppu.readRAM(addr);
 }
@@ -71,10 +72,9 @@ fn ppuWrite(m: *Mapper, addr: u16, value: u8) void {
 
     if (addr < 0x3000) {
         self.ppu.writeRAM(m.unmirror_nametable(addr), value);
-        return;
+    } else {
+        self.ppu.writeRAM(addr, value);
     }
-
-    self.ppu.writeRAM(addr, value);
 }
 
 pub fn init(cart: *Cart, ppu: *PPU) Self {
