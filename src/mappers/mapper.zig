@@ -65,9 +65,9 @@ pub const Mapper = struct {
         switch (self.ppu_mirror_mode) {
             .one_screen_lower => return 0x2000 + a % 0x400,
             .one_screen_upper => return 0x2400 + a % 0x400,
-            .vertical => return 0x2000 + a % 0x800,
+            .vertical => return (a & 0x2000) + (a % 0x800),
             .horizontal => {
-                var base: u16 = if (a >= 0x2800) 0x2800 else 0x2000;
+                var base: u16 = if (a >= 0x2800) 0x2400 else 0x2000;
                 var offset = a % 0x400;
                 return base + offset;
             },

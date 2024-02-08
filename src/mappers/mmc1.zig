@@ -147,6 +147,7 @@ pub const MMC1 = struct {
             2 => self.mapper.ppu_mirror_mode = .vertical,
             3 => self.mapper.ppu_mirror_mode = .horizontal,
         }
+        std.debug.print("Mirror mode set to {any}\n", .{self.mapper.ppu_mirror_mode});
     }
 
     /// Write to an internal register.

@@ -654,6 +654,7 @@ pub const PPU = struct {
         // This should happen between cycles 64 and 256, but I do it all at once on dot-64.
         if (self.cycle == 64) self.copySpritesToSecondaryOAM();
 
+        var tall_sprites = self.ppu_ctrl.sprite_is_8x16;
         // Use sprite data from secondary OAM to fill sprites latches.
         // TODO: should I do these in a cycle accurate manner, since we're reading from the pattern table?
         if (self.cycle == 257) {
@@ -667,9 +668,13 @@ pub const PPU = struct {
 
                 var row: u8 = @truncate(self.scanline - sprite_y);
 
-                var is_second_half = row >= 8; // for 8x16 sprites
+                var is_second_half = row > 7; // for 8x16 sprites
                 if (is_second_half) row -= 8;
-                if ((is_second_half and !attrs.flip_vert) or (!is_second_half and attrs.flip_vert)) { // no Xor operator with bools :(
+
+                if (tall_sprites and
+                    ((is_second_half and !attrs.flip_vert) or
+                    (!is_second_half and attrs.flip_vert)))
+                {
                     tile_index = @addWithOverflow(tile_index, 1)[0];
                 }
 
@@ -902,9 +907,18 @@ pub const PPU = struct {
     fn writePPUDATA(self: *Self, value: u8) void {
         var addr: u15 = @bitCast(self.vram_addr);
         self.mapper.ppuWrite(addr, value);
-        var addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
-        addr = @addWithOverflow(addr, addr_increment)[0];
-        self.vram_addr = @bitCast(addr);
+
+        // increment the address in PPUADDR (and the `v` register).
+        var is_render_line = self.scanline < 240 or self.scanline == 261;
+        var is_rendering_enabled = self.ppu_mask.draw_bg or self.ppu_mask.draw_sprites;
+        if (is_render_line and is_rendering_enabled) {
+            self.incrCoarseX();
+            self.incrY();
+        } else {
+            var addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
+            addr = @addWithOverflow(addr, addr_increment)[0];
+            self.vram_addr = @bitCast(addr);
+        }
     }
 
     /// Read a byte of data from the address pointed to by the PPUADDR register.
