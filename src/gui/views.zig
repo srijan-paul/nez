@@ -1,5 +1,5 @@
 const std = @import("std");
-const rl = @import("raylib");
+const rl = @cImport(@cInclude("raylib.h"));
 const ppu_module = @import("../ppu/ppu.zig");
 
 const PPU = ppu_module.PPU;
@@ -54,29 +54,29 @@ pub const Screen = struct {
 
     /// Initialize the screen view.
     pub fn init(ppu: *PPU, allocator: Allocator) Self {
-        var screen_img_data = rl.Image{
+        const screen_img_data = rl.Image{
             .data = &ppu.render_buffer,
             .width = PPU.ScreenWidth,
             .height = PPU.ScreenHeight,
             .mipmaps = 1,
-            .format = @intFromEnum(rl.rlPixelFormat.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8),
+            .format = rl.PIXELFORMAT_UNCOMPRESSED_R8G8B8,
         };
-        var texture = rl.LoadTextureFromImage(screen_img_data);
+        const texture = rl.LoadTextureFromImage(screen_img_data);
         return .{ .ppu = ppu, .texture = texture, .allocator = allocator };
     }
 
     pub fn draw(self: *Self) !void {
-        var topleft = rl.Vector2{ .x = 0, .y = 0 };
+        const topleft = rl.Vector2{ .x = 0, .y = 0 };
         rl.UpdateTexture(self.texture, &self.ppu.render_buffer);
         rl.DrawTexturePro(self.texture, scale.src, scale.dst, topleft, 0, rl.WHITE);
 
-        var mx: f32 = @floatFromInt(rl.GetMouseX());
-        var my: f32 = @floatFromInt(rl.GetMouseY());
+        const mx: f32 = @floatFromInt(rl.GetMouseX());
+        const my: f32 = @floatFromInt(rl.GetMouseY());
         if (mx < scale.dst.width and my < scale.dst.height) {
-            var tile_x: i32 = @intFromFloat(mx / (8 * 2));
-            var tile_y: i32 = @intFromFloat(my / (8 * 2));
+            const tile_x: i32 = @intFromFloat(mx / (8 * 2));
+            const tile_y: i32 = @intFromFloat(my / (8 * 2));
 
-            var buf = try std.fmt.allocPrintZ(self.allocator, "Tile: {}, {}", .{ tile_y, tile_x });
+            const buf = try std.fmt.allocPrintZ(self.allocator, "Tile: {}, {}", .{ tile_y, tile_x });
             defer self.allocator.free(buf);
 
             rl.DrawText(
@@ -105,12 +105,12 @@ pub const TilePreview = struct {
         var self = Self{
             .texture = undefined,
         };
-        var image = rl.Image{
+        const image = rl.Image{
             .data = &self.color_buf,
             .width = 8,
             .height = 8,
             .mipmaps = 1,
-            .format = @intFromEnum(rl.rlPixelFormat.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8),
+            .format = rl.PIXELFORMAT_UNCOMPRESSED_R8G8B8,
         };
 
         self.texture = rl.LoadTextureFromImage(image);
@@ -175,8 +175,8 @@ pub const PrimaryOAMView = struct {
             .tile_preview = tile_preview,
         };
 
-        var color_format = @intFromEnum(rl.rlPixelFormat.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8);
-        var oam_preview_image = rl.Image{
+        const color_format = rl.PIXELFORMAT_UNCOMPRESSED_R8G8B8;
+        const oam_preview_image = rl.Image{
             .data = &self.texture_buf,
             .width = 8 * 8, // 8 sprites per row, 8 pixels per sprite.
             .height = 8 * 8, // 8 sprites per column, 8 pixels per sprite.
@@ -185,7 +185,7 @@ pub const PrimaryOAMView = struct {
         };
         self.texture = rl.LoadTextureFromImage(oam_preview_image);
 
-        var current_sprite_image = rl.Image{
+        const current_sprite_image = rl.Image{
             .data = &self.current_sprite_texture_buf,
             .width = 8,
             .height = 8,
@@ -218,15 +218,15 @@ pub const PrimaryOAMView = struct {
 
         self.ppu.getSpriteData(&self.oam_buf);
         for (0..self.oam_buf.len) |i| {
-            var color_id = self.oam_buf[i];
-            var color = PPUPalette[color_id];
+            const color_id = self.oam_buf[i];
+            const color = PPUPalette[color_id];
             self.texture_buf[i * 3] = color.r;
             self.texture_buf[i * 3 + 1] = color.g;
             self.texture_buf[i * 3 + 2] = color.b;
         }
 
-        var oam_x: f32 = UIPositions.primary_oam_x;
-        var oam_y: f32 = UIPositions.primary_oam_y + 32;
+        const oam_x: f32 = UIPositions.primary_oam_x;
+        const oam_y: f32 = UIPositions.primary_oam_y + 32;
         rl.UpdateTexture(self.texture, &self.texture_buf);
         rl.DrawTexturePro(
             self.texture,
@@ -241,23 +241,23 @@ pub const PrimaryOAMView = struct {
         );
 
         // if the cursor is over a sprite, show that tile in a larger view.
-        var mouse_pos = rl.GetMousePosition();
-        var mx = mouse_pos.x;
-        var my = mouse_pos.y;
+        const mouse_pos = rl.GetMousePosition();
+        const mx = mouse_pos.x;
+        const my = mouse_pos.y;
 
         if (mx < oam_x or my < oam_y) return;
         if (mx >= oam_x + dstScale.width or my >= oam_y + dstScale.width) return;
 
         // find which tile the mouse is on
-        var oam_scale: f32 = scale;
-        var sprite_col = (mx - oam_x) / (8 * oam_scale);
-        var sprite_row = (my - oam_y) / (8 * oam_scale);
+        const oam_scale: f32 = scale;
+        const sprite_col = (mx - oam_x) / (8 * oam_scale);
+        const sprite_row = (my - oam_y) / (8 * oam_scale);
         if (sprite_row < 0.0 or sprite_col < 0.0) return;
         std.debug.assert(sprite_row < 8.0 and sprite_col < 8.0);
 
-        var sprite_row_u8: u8 = @intCast(@as(i32, @intFromFloat(sprite_row)));
-        var sprite_col_u8: u8 = @intCast(@as(i32, @intFromFloat(sprite_col)));
-        var sprite_index_in_oam = sprite_row_u8 * 8 + sprite_col_u8;
+        const sprite_row_u8: u8 = @intCast(@as(i32, @intFromFloat(sprite_row)));
+        const sprite_col_u8: u8 = @intCast(@as(i32, @intFromFloat(sprite_col)));
+        const sprite_index_in_oam = sprite_row_u8 * 8 + sprite_col_u8;
 
         self.tile_preview.drawSpriteTile(self.ppu, sprite_index_in_oam);
     }
@@ -278,12 +278,12 @@ pub const PaletteView = struct {
 
     /// Draw the palette at index i
     fn drawPalette(self: *Self, is_bg: bool, palette_index: u8, x: i32, y: i32) void {
-        var color_ids = self.ppu.getPaletteColors(is_bg, palette_index);
+        const color_ids = self.ppu.getPaletteColors(is_bg, palette_index);
 
         var xoff: i32 = 0;
         for (0..4) |i| {
-            var color = PPUPalette[color_ids[i]];
-            var rlColor = rl.Color{
+            const color = PPUPalette[color_ids[i]];
+            const rlColor = rl.Color{
                 .r = color.r,
                 .g = color.g,
                 .b = color.b,
@@ -297,8 +297,8 @@ pub const PaletteView = struct {
 
     /// Draw the background palettes from the PPU memory.
     pub fn drawBackgroundPalettes(self: *Self) void {
-        var x: i32 = 0;
-        var y: i32 = UIPositions.bg_palette_y;
+        const x: i32 = 0;
+        const y: i32 = UIPositions.bg_palette_y;
 
         var xoff: i32 = 4;
         var yoff: i32 = 4;
@@ -314,8 +314,8 @@ pub const PaletteView = struct {
 
     /// Draw the foreground palettes from PPU memory.
     pub fn drawForegroundPalettes(self: *Self) void {
-        var x: i32 = UIPositions.foreground_palette_x;
-        var y: i32 = UIPositions.foreground_palette_y;
+        const x: i32 = UIPositions.foreground_palette_x;
+        const y: i32 = UIPositions.foreground_palette_y;
 
         var xoff: i32 = 4;
         var yoff: i32 = 4;
@@ -341,13 +341,13 @@ pub const PatternTableView = struct {
     pt_right_texture: rl.Texture2D,
 
     pub fn init(allocator: Allocator) !Self {
-        var color_id_buf = try allocator.alloc(u8, PPU.pattern_table_size_px);
-        var image = rl.Image{
+        const color_id_buf = try allocator.alloc(u8, PPU.pattern_table_size_px);
+        const image = rl.Image{
             .data = color_id_buf.ptr,
             .width = 128,
             .height = 128,
             .mipmaps = 1,
-            .format = @intFromEnum(rl.rlPixelFormat.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8),
+            .format = rl.PIXELFORMAT_UNCOMPRESSED_R8G8B8,
         };
 
         return .{
@@ -384,15 +384,15 @@ pub const PatternTableView = struct {
         ppu.getPatternTableData(self.color_id_buf, pt_index, 0);
         // convert the 8 bit color IDs to 24 bit colors.
         for (0..self.color_id_buf.len) |i| {
-            var color_id = self.color_id_buf[i];
+            const color_id = self.color_id_buf[i];
             // std.debug.print("{}: {}, ", .{ i, color_id });
-            var color = PPUPalette[color_id];
+            const color = PPUPalette[color_id];
             self.pt_buf[i * 3] = color.r;
             self.pt_buf[i * 3 + 1] = color.g;
             self.pt_buf[i * 3 + 2] = color.b;
         }
 
-        var texture = if (pt_index == 0) self.pt_left_texture else self.pt_right_texture;
+        const texture = if (pt_index == 0) self.pt_left_texture else self.pt_right_texture;
         rl.UpdateTexture(texture, &self.pt_buf);
 
         var xoff: f32 = 4;
@@ -400,7 +400,7 @@ pub const PatternTableView = struct {
             xoff += 128 * pt_scale + 4;
         }
 
-        var pt_text = if (pt_index == 0) "Pattern Table 0" else "Pattern Table 1";
+        const pt_text = if (pt_index == 0) "Pattern Table 0" else "Pattern Table 1";
 
         rl.DrawText(pt_text, @intFromFloat(xoff), UIPositions.pattern_table_y, 16, rl.WHITE);
         rl.DrawTexturePro(

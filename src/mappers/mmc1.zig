@@ -71,7 +71,7 @@ pub const MMC1 = struct {
         // Since the bank registers are 5-bits wide, they can have a value of upto 32.
         // No cart has that many banks present, so we mask away the high bits
         // when the bank number is too large.
-        var mask = @call(.always_inline, util.bankingMask, .{self.chr_rom_bank_count});
+        const mask = @call(.always_inline, util.bankingMask, .{self.chr_rom_bank_count});
         return bank_number & mask;
     }
 
@@ -88,30 +88,30 @@ pub const MMC1 = struct {
         switch (self.ctrl_register.prg_rom_bank_mode) {
             0, 1 => {
                 // Switch 32KB at $8000, ignoring low bit of bank number.
-                var bank_number = self.maskChrRomBank(self.prg_bank & 0b11110);
+                const bank_number = self.maskChrRomBank(self.prg_bank & 0b11110);
 
-                var bank1_start = @as(u32, bank_number) * 2 * PrgBankSize;
-                var bank1_end = bank1_start + PrgBankSize;
+                const bank1_start = @as(u32, bank_number) * 2 * PrgBankSize;
+                const bank1_end = bank1_start + PrgBankSize;
                 self.prg_rom_lo = self.cart.prg_rom[bank1_start..bank1_end];
 
-                var bank2_start = bank1_end;
-                var bank2_end = bank2_start + PrgBankSize;
+                const bank2_start = bank1_end;
+                const bank2_end = bank2_start + PrgBankSize;
                 self.prg_rom_hi = self.cart.prg_rom[bank2_start..bank2_end];
             },
             2 => {
                 // fix first bank at $8000, and switch 16KB bank at $C000.
                 self.prg_rom_lo = self.cart.prg_rom[0..PrgBankSize];
 
-                var bank_start = PrgBankSize * @as(u32, self.prg_bank);
-                var bank_end = bank_start + PrgBankSize;
+                const bank_start = PrgBankSize * @as(u32, self.prg_bank);
+                const bank_end = bank_start + PrgBankSize;
                 self.prg_rom_hi = self.cart.prg_rom[bank_start..bank_end];
             },
             3 => {
                 // fix last bank at $C000, and switch the 16Kb bank at $8000.
-                var bank_offset = PrgBankSize * @as(u32, self.prg_bank);
+                const bank_offset = PrgBankSize * @as(u32, self.prg_bank);
                 self.prg_rom_lo = self.cart.prg_rom[bank_offset .. bank_offset + PrgBankSize];
 
-                var last_bank_start = (@as(u32, self.prg_rom_bank_count) - 1) * PrgBankSize;
+                const last_bank_start = (@as(u32, self.prg_rom_bank_count) - 1) * PrgBankSize;
                 self.prg_rom_hi = self.cart.prg_rom[last_bank_start .. last_bank_start + PrgBankSize];
             },
         }
@@ -123,16 +123,16 @@ pub const MMC1 = struct {
 
         if (self.ctrl_register.chr_rom_is_4kb) {
             // Switch two 4kb banks.
-            var bank0: u32 = self.maskChrRomBank(self.chr_bank0);
-            var bank0_start = bank0 * ChrBankSize;
+            const bank0: u32 = self.maskChrRomBank(self.chr_bank0);
+            const bank0_start = bank0 * ChrBankSize;
             self.chr_rom_lo = self.cart.chr_rom[bank0_start .. bank0_start + ChrBankSize];
 
-            var bank1: u32 = self.maskChrRomBank(self.chr_bank1);
-            var bank1_start = bank1 * ChrBankSize;
+            const bank1: u32 = self.maskChrRomBank(self.chr_bank1);
+            const bank1_start = bank1 * ChrBankSize;
             self.chr_rom_hi = self.cart.chr_rom[bank1_start .. bank1_start + ChrBankSize];
         } else {
             // Switch 8KB banks at a time.
-            var offset = @as(u32, self.maskChrRomBank(self.chr_bank0)) * 2 * ChrBankSize;
+            const offset = @as(u32, self.maskChrRomBank(self.chr_bank0)) * 2 * ChrBankSize;
             self.chr_rom_lo = self.cart.chr_rom[offset .. offset + ChrBankSize];
             self.chr_rom_hi = self.cart.chr_rom[offset + ChrBankSize .. offset + 2 * ChrBankSize];
         }
@@ -173,7 +173,7 @@ pub const MMC1 = struct {
         // 2. Ctrl = Ctrl | $0C
         if (value & 0b1000_0000 != 0) {
             self.shift_register = 0b10000;
-            var ctrl: u5 = @bitCast(self.ctrl_register);
+            const ctrl: u5 = @bitCast(self.ctrl_register);
             self.ctrl_register = @bitCast(ctrl | 0x0C);
             self.updateBankOffsets();
             return;
@@ -181,7 +181,7 @@ pub const MMC1 = struct {
 
         // check if the SR is full when this write is Done.
         // "full" = LSB is set to 1 of the shift register is set to 1.
-        var is_last_write = self.shift_register & 0b00001 != 0;
+        const is_last_write = self.shift_register & 0b00001 != 0;
 
         // Set the MSB of the shift register to the LSB of the value.
         self.shift_register =
@@ -198,7 +198,7 @@ pub const MMC1 = struct {
     }
 
     fn read(i_mapper: *Mapper, addr: u16) u8 {
-        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
+        const self: *Self = @fieldParentPtr("mapper", i_mapper);
         return switch (addr) {
             0x0000...0x5FFF => std.debug.panic("Open bus reads not emulated.\n", .{}),
             0x6000...0x7FFF => self.cart.prg_ram[addr - 0x6000],
@@ -208,7 +208,7 @@ pub const MMC1 = struct {
     }
 
     fn write(i_mapper: *Mapper, addr: u16, value: u8) void {
-        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
+        const self: *Self = @fieldParentPtr("mapper", i_mapper);
         switch (addr) {
             0x0000...0x5FFF => std.debug.panic("Open bus writes not emulated.\n", .{}),
             0x6000...0x7FFF => self.cart.prg_ram[addr - 0x6000] = value,
@@ -239,7 +239,7 @@ pub const MMC1 = struct {
 
     /// Read a byte from the cartridge's CHR ROM.
     fn ppuRead(m: *Mapper, addr: u16) u8 {
-        var self: *Self = @fieldParentPtr(Self, "mapper", m);
+        const self: *Self = @fieldParentPtr("mapper", m);
         if (addr < 0x2000) {
             if (self.has_chr_ram) return self.cart.chr_ram[addr];
             return self.cart.chr_rom[addr];
@@ -253,7 +253,7 @@ pub const MMC1 = struct {
 
     /// Write a byte to PPU memory.
     fn ppuWrite(m: *Mapper, addr: u16, value: u8) void {
-        var self: *Self = @fieldParentPtr(Self, "mapper", m);
+        const self: *Self = @fieldParentPtr("mapper", m);
         if (addr < 0x2000) {
             if (self.has_chr_ram) self.cart.chr_ram[addr] = value;
             return;

@@ -107,9 +107,9 @@ pub const Header = packed struct {
     /// Get the kind of mapper used for the ROM to which
     /// this header belongs.
     pub fn getMapper(self: *Self) MapperKind {
-        var lo: u8 = self.flags_6.mapper_lower;
-        var hi: u8 = self.flags_7.mapper_upper;
-        var mapper_code = (hi << 4) | lo;
+        const lo: u8 = self.flags_6.mapper_lower;
+        const hi: u8 = self.flags_7.mapper_upper;
+        const mapper_code = (hi << 4) | lo;
         return switch (mapper_code) {
             0 => MapperKind.nrom,
             1 => MapperKind.mmc1,
@@ -163,21 +163,21 @@ pub const Cart = struct {
         // populate the PRG ROM.
         const prg_rom_banksize: usize = 16 * 1024; // size of each ROM bank
 
-        var prg_rom_buf = try allocator.alloc(u8, header.prg_rom_banks * prg_rom_banksize);
+        const prg_rom_buf = try allocator.alloc(u8, header.prg_rom_banks * prg_rom_banksize);
         bytes_read = try file.read(prg_rom_buf);
         std.debug.assert(bytes_read == prg_rom_buf.len);
 
         total_bytes_read += bytes_read;
-        var chr_rom_size = @as(usize, header.chr_rom_size) * 8 * 1024;
-        var chr_rom_buf = try allocator.alloc(u8, chr_rom_size);
+        const chr_rom_size = @as(usize, header.chr_rom_size) * 8 * 1024;
+        const chr_rom_buf = try allocator.alloc(u8, chr_rom_size);
 
         bytes_read = try file.read(chr_rom_buf);
         total_bytes_read += bytes_read;
         assert(bytes_read == chr_rom_size);
 
         // When a cart does not have CHR-ROM (e.g: Zelda), it has CHR-RAM which is 8KiB.
-        var chr_ram_size: usize = if (chr_rom_size == 0) 8 * 1024 else 0;
-        var chr_ram_buf = try allocator.alloc(u8, chr_ram_size);
+        const chr_ram_size: usize = if (chr_rom_size == 0) 8 * 1024 else 0;
+        const chr_ram_buf = try allocator.alloc(u8, chr_ram_size);
 
         // I do not support playchoice inst-rom and prom (yet).
 

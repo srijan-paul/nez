@@ -1,6 +1,4 @@
-const rl = @import("raylib");
-const rg = @import("raygui");
-const gui = @import("./gui/gui.zig");
+const rl = @cImport(@cInclude("raylib.h"));
 const views = @import("./gui/views.zig");
 const std = @import("std");
 const PPU = @import("./ppu/ppu.zig").PPU;
@@ -19,20 +17,19 @@ const Allocator = std.mem.Allocator;
 const Button = Gamepad.Button;
 fn readGamepad(pad: *Gamepad) void {
     var buttons: [8]bool = undefined;
-    buttons[@intFromEnum(Button.A)] = rl.IsKeyDown(rl.KeyboardKey.KEY_Q);
-    buttons[@intFromEnum(Button.B)] = rl.IsKeyDown(rl.KeyboardKey.KEY_E);
-    buttons[@intFromEnum(Button.Start)] = rl.IsKeyDown(rl.KeyboardKey.KEY_ENTER);
-    buttons[@intFromEnum(Button.Select)] = rl.IsKeyDown(rl.KeyboardKey.KEY_X);
-    buttons[@intFromEnum(Button.Up)] = rl.IsKeyDown(rl.KeyboardKey.KEY_UP);
-    buttons[@intFromEnum(Button.Down)] = rl.IsKeyDown(rl.KeyboardKey.KEY_DOWN);
-    buttons[@intFromEnum(Button.Left)] = rl.IsKeyDown(rl.KeyboardKey.KEY_LEFT);
-    buttons[@intFromEnum(Button.Right)] = rl.IsKeyDown(rl.KeyboardKey.KEY_RIGHT);
+    buttons[@intFromEnum(Button.A)] = rl.IsKeyDown(rl.KEY_Q);
+    buttons[@intFromEnum(Button.B)] = rl.IsKeyDown(rl.KEY_E);
+    buttons[@intFromEnum(Button.Start)] = rl.IsKeyDown(rl.KEY_ENTER);
+    buttons[@intFromEnum(Button.Select)] = rl.IsKeyDown(rl.KEY_X);
+    buttons[@intFromEnum(Button.Up)] = rl.IsKeyDown(rl.KEY_UP);
+    buttons[@intFromEnum(Button.Down)] = rl.IsKeyDown(rl.KEY_DOWN);
+    buttons[@intFromEnum(Button.Left)] = rl.IsKeyDown(rl.KEY_LEFT);
+    buttons[@intFromEnum(Button.Right)] = rl.IsKeyDown(rl.KEY_RIGHT);
     pad.setInputs(buttons);
 }
 
 const DebugView = struct {
     const Self = @This();
-    registerWin: gui.Window,
     allocator: Allocator,
     pt_view: PatternTableView,
     palette_view: PaletteView,
@@ -44,13 +41,6 @@ const DebugView = struct {
     pub fn init(allocator: Allocator, emu: *NESConsole) !Self {
         var self: Self = undefined;
         self.allocator = allocator;
-        self.registerWin = gui.Window.new(allocator, "CPU State", 0, 0, 160, 240);
-        try self.registerWin.addLabel("A", 88, 56, 24, 24);
-        try self.registerWin.addLabel("X", 16, 32, 24, 24);
-        try self.registerWin.addLabel("Y", 16, 56, 24, 24);
-        try self.registerWin.addLabel("S", 88, 32, 24, 24);
-        try self.registerWin.addLabel("PC", 16, 104, 30, 24);
-        try self.registerWin.addLabel("Status", 16, 152, 56, 24);
 
         self.emu = emu;
         self.pt_view = try PatternTableView.init(allocator);
@@ -67,18 +57,6 @@ const DebugView = struct {
         self.palette_view.drawBackgroundPalettes();
         self.palette_view.drawForegroundPalettes();
         self.sprite_view.draw();
-
-        var emu = self.emu;
-        self.registerWin.draw();
-        try self.registerWin.drawLabelUint(100, 56, 24, 24, emu.cpu.A);
-        try self.registerWin.drawLabelUint(32, 32, 24, 24, emu.cpu.X);
-        try self.registerWin.drawLabelUint(32, 56, 24, 24, emu.cpu.Y);
-        try self.registerWin.drawLabelUint(100, 32, 24, 24, emu.cpu.S);
-        // PC points to the next instruction to be executed. (TODO: dont do this)
-        try self.registerWin.drawLabelUint(40, 104, 40, 24, emu.cpu.PC - 1);
-
-        var cpu_status: u8 = @bitCast(emu.cpu.StatusRegister);
-        try self.registerWin.drawLabelUint(60, 152, 24, 24, cpu_status);
     }
 
     pub fn deinit(self: *Self) void {
@@ -92,7 +70,7 @@ const debugFlag = "--debug";
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
 
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
@@ -121,7 +99,7 @@ pub fn main() !void {
         }
     }
 
-    rl.SetConfigFlags(rl.ConfigFlags{ .FLAG_WINDOW_RESIZABLE = false });
+    // rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE);
 
     if (isDebug) {
         rl.InitWindow(800, 800, "nez");
@@ -145,8 +123,8 @@ pub fn main() !void {
     defer screen.deinit();
 
     while (!rl.WindowShouldClose()) {
-        var now: u64 = @intCast(std.time.milliTimestamp());
-        var dt: u64 = now - then;
+        const now: u64 = @intCast(std.time.milliTimestamp());
+        const dt: u64 = now - then;
         then = now;
 
         rl.BeginDrawing();
@@ -154,7 +132,7 @@ pub fn main() !void {
 
         _ = try emu.update(dt);
         if (!emu.is_paused) readGamepad(emu.controller);
-        if (rl.IsKeyPressed(rl.KeyboardKey.KEY_SPACE)) {
+        if (rl.IsKeyPressed(rl.KEY_SPACE)) {
             emu.is_paused = !emu.is_paused;
         }
 

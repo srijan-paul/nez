@@ -111,7 +111,7 @@ pub const CPU = struct {
 
     // fetch the next byte to execute.
     fn nextOp(self: *Self) u8 {
-        var byte = self.memRead(self.PC);
+        const byte = self.memRead(self.PC);
         self.incPC();
         return byte;
     }
@@ -119,17 +119,17 @@ pub const CPU = struct {
     /// Fetch the next two bytes from the program counter,
     /// and stitch them together to get a 16 bit address from memory.
     fn getAddr16(self: *Self) u16 {
-        var low: u16 = self.nextOp();
-        var high: u16 = self.nextOp();
+        const low: u16 = self.nextOp();
+        const high: u16 = self.nextOp();
         return low | (high << 8);
     }
 
     /// Get the address pointed to by the operand of the instruction `instr`.
     fn addrOfInstruction(self: *Self, instr: *const Instruction) u16 {
-        var mode = instr[1];
+        const mode = instr[1];
         switch (mode) {
             .Immediate => {
-                var addr = self.PC;
+                const addr = self.PC;
                 self.incPC();
                 return addr;
             },
@@ -153,7 +153,7 @@ pub const CPU = struct {
             },
 
             .ZeroPage => {
-                var addr = self.nextOp();
+                const addr = self.nextOp();
                 return addr;
             },
 
@@ -180,29 +180,29 @@ pub const CPU = struct {
             },
 
             .Indirect => {
-                var addr = self.getAddr16();
-                var low: u16 = self.memRead(addr);
-                var high: u16 = self.memRead(addr + 1);
-                var final_addr = low | (high << 8);
+                const addr = self.getAddr16();
+                const low: u16 = self.memRead(addr);
+                const high: u16 = self.memRead(addr + 1);
+                const final_addr = low | (high << 8);
                 return final_addr;
             },
 
             // TODO: support zero page wrap around.
             .IndirectX => {
-                var addr: u8 = @truncate(self.nextOp() + @as(u16, self.X));
-                var low: u16 = self.memRead(addr);
-                var next_addr = @addWithOverflow(addr, 1)[0];
-                var high: u16 = self.memRead(next_addr);
-                var final_addr = low | (high << 8);
+                const addr: u8 = @truncate(self.nextOp() + @as(u16, self.X));
+                const low: u16 = self.memRead(addr);
+                const next_addr = @addWithOverflow(addr, 1)[0];
+                const high: u16 = self.memRead(next_addr);
+                const final_addr = low | (high << 8);
                 return final_addr;
             },
 
             // TODO: support zero page wrap around.
             .IndirectY => {
-                var addr = self.nextOp();
-                var low: u16 = self.memRead(addr);
-                var high: u16 = self.memRead(@addWithOverflow(addr, 1)[0]);
-                var final_addr = @addWithOverflow((low | (high << 8)), self.Y)[0];
+                const addr = self.nextOp();
+                const low: u16 = self.memRead(addr);
+                const high: u16 = self.memRead(@addWithOverflow(addr, 1)[0]);
+                const final_addr = @addWithOverflow((low | (high << 8)), self.Y)[0];
                 return final_addr;
             },
 
@@ -213,9 +213,9 @@ pub const CPU = struct {
     /// Depending on the addressing mode of the instruction `instr`,
     /// get a byte of the data from memory.
     fn operand(self: *Self, instr: *const Instruction) u8 {
-        var mode = instr[1];
+        const mode = instr[1];
         if (mode == .Accumulator) return self.A;
-        var addr = self.addrOfInstruction(instr);
+        const addr = self.addrOfInstruction(instr);
         return self.memRead(addr);
     }
 
@@ -247,7 +247,7 @@ pub const CPU = struct {
 
     /// Push `value` onto the stack, and decrement the stack pointer.
     fn push(self: *Self, value: u8) void {
-        var addr = self.stackAddr();
+        const addr = self.stackAddr();
         self.memWrite(addr, value);
         // decrement the stack pointer.
         self.S = @subWithOverflow(self.S, 1)[0];
@@ -256,7 +256,7 @@ pub const CPU = struct {
     /// Pops a value from the stack.
     fn pop(self: *Self) u8 {
         self.S = @addWithOverflow(self.S, 1)[0];
-        var addr = self.stackAddr();
+        const addr = self.stackAddr();
         return self.memRead(addr);
     }
 
@@ -266,9 +266,9 @@ pub const CPU = struct {
             self.cycles_to_wait += 1;
 
             // jump offset is signed.
-            var offset: i8 = @bitCast(self.nextOp());
-            var old_pc: i32 = self.PC;
-            var new_pc: u32 = @bitCast(old_pc + offset);
+            const offset: i8 = @bitCast(self.nextOp());
+            const old_pc: i32 = self.PC;
+            const new_pc: u32 = @bitCast(old_pc + offset);
             self.PC = @truncate(new_pc);
             // if the branch jumps to a new page, add an extra cycle.
             if (old_pc & 0xFF00 != new_pc & 0xFF00) {
@@ -282,16 +282,16 @@ pub const CPU = struct {
     /// Perform the `ROL` instruction, using `byte` as the operand,
     /// but do not write the result back to memory.
     fn rol(self: *Self, byte: u8) u8 {
-        var old_carry: u8 = if (self.StatusRegister.C) 1 else 0;
+        const old_carry: u8 = if (self.StatusRegister.C) 1 else 0;
 
-        var shlResult = @shlWithOverflow(byte, @as(u8, 1));
+        const shlResult = @shlWithOverflow(byte, @as(u8, 1));
 
         // set the new bit-0 to the old carry.
-        var res = shlResult[0] | old_carry;
+        const res = shlResult[0] | old_carry;
         self.setZN(res);
 
         // the bit that was shifted out when performing a <<
-        var shifted_bit = shlResult[1];
+        const shifted_bit = shlResult[1];
         self.StatusRegister.C = shifted_bit == 1;
         return res;
     }
@@ -299,9 +299,9 @@ pub const CPU = struct {
     /// Perform the `ROR` instruction using `byte` as the operand,
     /// but do not write the result back to memory.
     fn ror(self: *Self, byte: u8) u8 {
-        var old_carry: u8 = if (self.StatusRegister.C) 1 else 0;
+        const old_carry: u8 = if (self.StatusRegister.C) 1 else 0;
 
-        var old_b0 = byte & 0b0000_0001; // old 0th bit
+        const old_b0 = byte & 0b0000_0001; // old 0th bit
         var res = byte >> 1;
         // set the new MSB to the old carry.
         res = res | (old_carry << 7);
@@ -316,7 +316,7 @@ pub const CPU = struct {
     /// Perform the 'ASL' instruction and set appropriate flags, but do
     /// not write the resulting back to memory.
     fn asl(self: *Self, byte: u8) u8 {
-        var res: u16 = @as(u16, byte) << 1;
+        const res: u16 = @as(u16, byte) << 1;
         self.setZN(res);
         self.setC(res);
         return @truncate(res);
@@ -324,9 +324,9 @@ pub const CPU = struct {
 
     /// Perform the `ADC` CPU operation on `arg`.
     fn adc(self: *Self, arg: u8) void {
-        var byte: u16 = arg;
-        var carry: u16 = if (self.StatusRegister.C) 1 else 0;
-        var sum: u16 = self.A + byte + carry;
+        const byte: u16 = arg;
+        const carry: u16 = if (self.StatusRegister.C) 1 else 0;
+        const sum: u16 = self.A + byte + carry;
 
         self.setZN(sum);
         self.setC(sum);
@@ -337,8 +337,8 @@ pub const CPU = struct {
 
     /// Execute a single instruction.
     pub fn exec(self: *Self, instr: *const Instruction) !void {
-        var op = instr[0];
-        var mode: AddrMode = instr[1];
+        const op = instr[0];
+        const mode: AddrMode = instr[1];
 
         switch (op) {
             Op.ADC => self.adc(self.operand(instr)),
@@ -348,8 +348,8 @@ pub const CPU = struct {
             Op.SBC => self.adc(~self.operand(instr)),
 
             Op.AND => {
-                var byte = self.operand(instr);
-                var result = self.A & byte;
+                const byte = self.operand(instr);
+                const result = self.A & byte;
                 self.A = result;
                 self.setZN(result);
             },
@@ -358,8 +358,8 @@ pub const CPU = struct {
                 if (mode == AddrMode.Accumulator) {
                     self.A = self.asl(self.A);
                 } else {
-                    var dst = self.addrOfInstruction(instr);
-                    var byte = self.memRead(dst);
+                    const dst = self.addrOfInstruction(instr);
+                    const byte = self.memRead(dst);
                     // Peculiar behavior of R-M-W (Read modify write) instructions.
                     // The value is written as-is first, and then the modified value is written.
                     // Emulating this is sometimes important, because the mapper might respond differently to these writes.
@@ -369,8 +369,8 @@ pub const CPU = struct {
             },
 
             Op.BIT => {
-                var byte = self.operand(instr);
-                var result = self.A & byte;
+                const byte = self.operand(instr);
+                const result = self.A & byte;
                 self.StatusRegister.Z = result == 0;
                 self.StatusRegister.N = (byte & 0b1000_0000) != 0;
                 self.StatusRegister.V = (byte & 0b0100_0000) != 0;
@@ -404,8 +404,8 @@ pub const CPU = struct {
                 flags.B = true;
                 self.push(@bitCast(flags));
 
-                var lo: u16 = self.memRead(0xFFFE);
-                var hi: u16 = self.memRead(0xFFFF);
+                const lo: u16 = self.memRead(0xFFFE);
+                const hi: u16 = self.memRead(0xFFFF);
                 self.PC = (hi << 8) | lo;
                 self.StatusRegister.I = true;
                 self.StatusRegister._ = true;
@@ -417,30 +417,30 @@ pub const CPU = struct {
             Op.CLV => self.StatusRegister.V = false,
 
             Op.CMP => {
-                var byte: u8 = self.operand(instr);
-                var result = @subWithOverflow(self.A, byte)[0];
+                const byte: u8 = self.operand(instr);
+                const result = @subWithOverflow(self.A, byte)[0];
                 self.setZN(result);
                 self.StatusRegister.C = self.A >= byte;
             },
 
             Op.CPX => {
-                var byte: u8 = self.operand(instr);
-                var result = @subWithOverflow(self.X, byte)[0];
+                const byte: u8 = self.operand(instr);
+                const result = @subWithOverflow(self.X, byte)[0];
                 self.setZN(result);
                 self.StatusRegister.C = self.X >= byte;
             },
 
             Op.CPY => {
-                var byte: u8 = self.operand(instr);
-                var result = @subWithOverflow(self.Y, byte)[0];
+                const byte: u8 = self.operand(instr);
+                const result = @subWithOverflow(self.Y, byte)[0];
                 self.setZN(result);
                 self.StatusRegister.C = self.Y >= byte;
             },
 
             Op.DEC => {
-                var dst_addr = self.addrOfInstruction(instr);
-                var byte = self.memRead(dst_addr);
-                var res = @subWithOverflow(byte, 1)[0];
+                const dst_addr = self.addrOfInstruction(instr);
+                const byte = self.memRead(dst_addr);
+                const res = @subWithOverflow(byte, 1)[0];
                 self.setZN(res);
                 // Peculiar behavior of R-M-W instructions.
                 // The value is written as-is first, and then the modified value is written.
@@ -449,27 +449,27 @@ pub const CPU = struct {
             },
 
             Op.DEX => {
-                var res = @subWithOverflow(self.X, 1)[0];
+                const res = @subWithOverflow(self.X, 1)[0];
                 self.setZN(res);
                 self.X = res;
             },
 
             Op.DEY => {
-                var res = @subWithOverflow(self.Y, 1)[0];
+                const res = @subWithOverflow(self.Y, 1)[0];
                 self.setZN(res);
                 self.Y = res;
             },
 
             Op.EOR => {
-                var byte = self.operand(instr);
+                const byte = self.operand(instr);
                 self.A = self.A ^ byte;
                 self.setZN(self.A);
             },
 
             Op.INC => {
-                var dst = self.addrOfInstruction(instr);
-                var byte = self.memRead(dst);
-                var res = @addWithOverflow(byte, 1)[0];
+                const dst = self.addrOfInstruction(instr);
+                const byte = self.memRead(dst);
+                const res = @addWithOverflow(byte, 1)[0];
                 self.setZN(res);
                 // Peculiar behavior of R-M-W instructions.
                 // The value is written as-is first, and then the modified value is written.
@@ -478,13 +478,13 @@ pub const CPU = struct {
             },
 
             Op.INX => {
-                var res = @addWithOverflow(self.X, 1)[0];
+                const res = @addWithOverflow(self.X, 1)[0];
                 self.setZN(res);
                 self.X = res;
             },
 
             Op.INY => {
-                var res = @addWithOverflow(self.Y, 1)[0];
+                const res = @addWithOverflow(self.Y, 1)[0];
                 self.setZN(res);
                 self.Y = res;
             },
@@ -494,7 +494,7 @@ pub const CPU = struct {
                     self.PC = self.getAddr16();
                 } else {
                     assert(instr[1] == AddrMode.Indirect);
-                    var addr_addr = self.getAddr16();
+                    const addr_addr = self.getAddr16();
                     var lo: u16 = undefined;
                     var hi: u16 = undefined;
                     // If the indirect vector falls on a page boundary
@@ -514,26 +514,26 @@ pub const CPU = struct {
             },
 
             Op.JSR => {
-                var return_addr = @addWithOverflow(self.PC, @as(u16, 1))[0];
+                const return_addr = @addWithOverflow(self.PC, @as(u16, 1))[0];
                 self.push(@truncate(return_addr >> 8)); // high byte
                 self.push(@truncate(return_addr)); // low byte
                 self.PC = self.getAddr16();
             },
 
             Op.LDA => {
-                var byte = self.operand(instr);
+                const byte = self.operand(instr);
                 self.A = byte;
                 self.setZN(byte);
             },
 
             Op.LDX => {
-                var byte = self.operand(instr);
+                const byte = self.operand(instr);
                 self.X = byte;
                 self.setZN(byte);
             },
 
             Op.LDY => {
-                var byte = self.operand(instr);
+                const byte = self.operand(instr);
                 self.Y = byte;
                 self.setZN(byte);
             },
@@ -541,14 +541,14 @@ pub const CPU = struct {
             Op.LSR => {
                 if (mode == .Accumulator) {
                     self.StatusRegister.C = (self.A & 0b0000_0001) == 1;
-                    var res = self.A >> 1;
+                    const res = self.A >> 1;
                     self.setZN(res);
                     self.A = res;
                 } else {
-                    var dst = self.addrOfInstruction(instr);
-                    var byte = self.memRead(dst);
+                    const dst = self.addrOfInstruction(instr);
+                    const byte = self.memRead(dst);
                     self.StatusRegister.C = (byte & 0b0000_0001) == 1;
-                    var res = byte >> 1;
+                    const res = byte >> 1;
                     self.setZN(res);
                     // Peculiar behavior of R-M-W (Read modify write) instructions.
                     // The value is written as-is first, and then the modified value is written.
@@ -560,15 +560,15 @@ pub const CPU = struct {
             Op.NOP => {},
 
             Op.ORA => {
-                var byte = self.operand(instr);
-                var result = self.A | byte;
+                const byte = self.operand(instr);
+                const result = self.A | byte;
                 self.A = result;
                 self.setZN(result);
             },
 
             Op.PHA => {
                 // the stack starts at 0x100, and grows downwards.
-                var addr = @addWithOverflow(0x100, @as(u16, self.S))[0];
+                const addr = @addWithOverflow(0x100, @as(u16, self.S))[0];
                 self.memWrite(addr, self.A);
                 // decrement the stack pointer.
                 self.S = @subWithOverflow(self.S, 1)[0];
@@ -596,9 +596,9 @@ pub const CPU = struct {
                 if (mode == .Accumulator) {
                     self.A = self.rol(self.A);
                 } else {
-                    var dst = self.addrOfInstruction(instr);
-                    var byte = self.memRead(dst);
-                    var res = self.rol(byte);
+                    const dst = self.addrOfInstruction(instr);
+                    const byte = self.memRead(dst);
+                    const res = self.rol(byte);
                     // Peculiar behavior of R-M-W (Read modify write) instructions.
                     // The value is written as-is first, and then the modified value is written.
                     self.memWrite(dst, byte);
@@ -610,9 +610,9 @@ pub const CPU = struct {
                 if (mode == .Accumulator) {
                     self.A = self.ror(self.A);
                 } else {
-                    var dst = self.addrOfInstruction(instr);
-                    var byte = self.memRead(dst);
-                    var res = self.ror(byte);
+                    const dst = self.addrOfInstruction(instr);
+                    const byte = self.memRead(dst);
+                    const res = self.ror(byte);
                     // Peculiar behavior of R-M-W (Read modify write) instructions.
                     // The value is written as-is first, and then the modified value is written.
                     self.memWrite(dst, byte);
@@ -624,14 +624,14 @@ pub const CPU = struct {
                 self.StatusRegister = @bitCast(self.pop());
                 self.StatusRegister._ = true;
                 self.StatusRegister.B = false;
-                var lo: u16 = self.pop();
-                var hi: u16 = self.pop();
+                const lo: u16 = self.pop();
+                const hi: u16 = self.pop();
                 self.PC = (hi << 8) | lo;
             },
 
             Op.RTS => {
-                var lo: u16 = self.pop();
-                var hi: u16 = self.pop();
+                const lo: u16 = self.pop();
+                const hi: u16 = self.pop();
                 self.PC = (hi << 8) | lo;
                 self.incPC();
             },
@@ -641,17 +641,17 @@ pub const CPU = struct {
             Op.SEI => self.StatusRegister.I = true,
 
             Op.STA => {
-                var dst = self.addrOfInstruction(instr);
+                const dst = self.addrOfInstruction(instr);
                 self.memWrite(dst, self.A);
             },
 
             Op.STX => {
-                var dst = self.addrOfInstruction(instr);
+                const dst = self.addrOfInstruction(instr);
                 self.memWrite(dst, self.X);
             },
 
             Op.STY => {
-                var dst = self.addrOfInstruction(instr);
+                const dst = self.addrOfInstruction(instr);
                 self.memWrite(dst, self.Y);
             },
 
@@ -701,15 +701,15 @@ pub const CPU = struct {
         self.StatusRegister.I = true;
 
         // The NMI handler's address is at 0xFFFA/0xFFFB
-        var nmi_handler_addr_lo: u16 = self.memRead(0xFFFA);
-        var nmi_handler_addr_hi: u16 = self.memRead(0xFFFB);
-        var nmi_handler_addr = (nmi_handler_addr_hi << 8) | nmi_handler_addr_lo;
+        const nmi_handler_addr_lo: u16 = self.memRead(0xFFFA);
+        const nmi_handler_addr_hi: u16 = self.memRead(0xFFFB);
+        const nmi_handler_addr = (nmi_handler_addr_hi << 8) | nmi_handler_addr_lo;
         self.PC = nmi_handler_addr;
     }
 
     /// Fetch and decode the next instruction.
     pub fn nextInstruction(self: *Self) *const Instruction {
-        var op = self.nextOp();
+        const op = self.nextOp();
         return opcode.decodeInstruction(op);
     }
 
@@ -744,8 +744,8 @@ pub const CPU = struct {
     }
 
     pub fn reset(self: *Self) void {
-        var lo: u16 = self.memRead(0xFFFC);
-        var hi: u16 = self.memRead(0xFFFD);
+        const lo: u16 = self.memRead(0xFFFC);
+        const hi: u16 = self.memRead(0xFFFD);
         self.PC = (hi << 8) | lo;
 
         self.StatusRegister._ = true;
@@ -775,8 +775,8 @@ pub const CPU = struct {
         self.StatusRegister = @bitCast(initial_state.p);
 
         for (initial_state.ram) |*entry| {
-            var addr = entry[0];
-            var byte = entry[1];
+            const addr = entry[0];
+            const byte = entry[1];
             self.memWrite(addr, byte);
         }
 
@@ -785,8 +785,8 @@ pub const CPU = struct {
         var final_ram = try self.allocator.alloc(struct { u16, u8 }, initial_state.ram.len);
 
         for (0..initial_state.ram.len) |i| {
-            var entry = &initial_state.ram[i];
-            var addr = entry[0];
+            const entry = &initial_state.ram[i];
+            const addr = entry[0];
             assert(i < final_ram.len);
             final_ram[i] = .{ entry[0], self.memRead(addr) };
         }
@@ -824,7 +824,7 @@ test "CPU:init" {
 test "CPU:nextOp" {
     var tbus = TestBus.new();
     var cpu = CPU.init(T.allocator, &tbus.bus);
-    var op: u8 = 0x42;
+    const op: u8 = 0x42;
     tbus.mem[0] = op;
     cpu.PC = 0;
 
@@ -851,14 +851,14 @@ fn parseCPUTestCase(allocator: Allocator, testcase_str: []const u8) !std.json.Pa
 }
 
 fn runTestsForInstruction(instr_hex: []const u8) !void {
-    var instr_file = try std.mem.concat(
+    const instr_file = try std.mem.concat(
         T.allocator,
         u8,
         &[_][]const u8{ instr_hex, ".json" },
     );
     defer T.allocator.free(instr_file);
 
-    var file_path = try std.fs.path.join(
+    const file_path = try std.fs.path.join(
         T.allocator,
         &[_][]const u8{
             "src",
@@ -869,7 +869,7 @@ fn runTestsForInstruction(instr_hex: []const u8) !void {
     );
     defer T.allocator.free(file_path);
 
-    var contents = try std.fs.cwd().readFileAlloc(T.allocator, file_path, std.math.maxInt(usize));
+    const contents = try std.fs.cwd().readFileAlloc(T.allocator, file_path, std.math.maxInt(usize));
     defer T.allocator.free(contents);
 
     var parsed = try parseCPUTestCase(T.allocator, contents);
@@ -886,9 +886,9 @@ fn runTestsForInstruction(instr_hex: []const u8) !void {
 fn runTestCase(test_case: *const InstrTest) !void {
     var tbus = TestBus.new();
     var cpu = CPU.init(T.allocator, &tbus.bus);
-    var received = try cpu.runFromState(&test_case.initial);
+    const received = try cpu.runFromState(&test_case.initial);
     defer T.allocator.free(received.ram);
-    var expected = &test_case.final;
+    const expected = &test_case.final;
 
     try T.expectEqual(expected.pc, received.pc);
     try T.expectEqual(expected.s, received.s);
@@ -897,9 +897,9 @@ fn runTestCase(test_case: *const InstrTest) !void {
     try T.expectEqual(expected.y, received.y);
     try T.expectEqual(expected.p, received.p);
     for (expected.ram) |*cell| {
-        var addr = cell[0];
-        var expected_byte = cell[1];
-        var received_byte = cpu.memRead(addr);
+        const addr = cell[0];
+        const expected_byte = cell[1];
+        const received_byte = cpu.memRead(addr);
         if (expected_byte != received_byte) {
             std.debug.print("Expected: {d}, Received: {d} at address {d}\n", .{ expected_byte, received_byte, addr });
             return error.TestExpectedEqual;

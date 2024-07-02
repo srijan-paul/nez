@@ -40,12 +40,12 @@ pub const TestBus = struct {
     bus: Bus,
 
     fn write(i_bus: *Bus, addr: u16, val: u8) void {
-        var self: *Self = @fieldParentPtr(Self, "bus", i_bus);
+        const self: *Self = @fieldParentPtr("bus", i_bus);
         self.mem[addr] = val;
     }
 
     fn read(i_bus: *Bus, addr: u16) u8 {
-        var self: *Self = @fieldParentPtr(Self, "bus", i_bus);
+        const self: *Self = @fieldParentPtr("bus", i_bus);
         return self.mem[addr];
     }
 
@@ -78,7 +78,7 @@ pub const NESBus = struct {
     ram: [w_ram_size]u8 = .{0} ** w_ram_size,
 
     fn busRead(i_bus: *Bus, addr: u16) u8 {
-        var self = @fieldParentPtr(Self, "bus", i_bus);
+        var self: *Self = @fieldParentPtr("bus", i_bus);
 
         return switch (addr) {
             0...0x1FFF => self.ram[addr % w_ram_size],
@@ -91,7 +91,7 @@ pub const NESBus = struct {
     }
 
     fn busWrite(i_bus: *Bus, addr: u16, val: u8) void {
-        var self = @fieldParentPtr(Self, "bus", i_bus);
+        var self: *Self = @fieldParentPtr("bus", i_bus);
         switch (addr) {
             0...0x1FFF => self.ram[addr % w_ram_size] = val,
             0x2000...0x3FFF => self.ppu.writeRegister(addr, val),
@@ -114,7 +114,7 @@ pub const NESBus = struct {
 
     /// Create a mapper based on the cart's configuration.
     fn createMapper(allocator: Allocator, cart: *Cart, ppu: *PPU) !*Mapper {
-        var kind = cart.header.getMapper();
+        const kind = cart.header.getMapper();
         switch (kind) {
             .nrom => {
                 var nrom = try allocator.create(NROM);
@@ -139,8 +139,8 @@ pub const NESBus = struct {
     /// returns `true` if there is an NMI waiting to be serviced by the CPU.
     /// resets the NMI flag when called.
     fn isNMIPending(i_bus: *Bus) bool {
-        var self = @fieldParentPtr(Self, "bus", i_bus);
-        var nmi = self.ppu.is_nmi_pending;
+        var self: *Self = @fieldParentPtr("bus", i_bus);
+        const nmi = self.ppu.is_nmi_pending;
         self.ppu.is_nmi_pending = false;
         return nmi;
     }
@@ -165,17 +165,17 @@ pub const NESBus = struct {
     pub fn deinit(self: *Self) void {
         switch (self.cart.header.getMapper()) {
             .nrom => {
-                var nrom = @fieldParentPtr(NROM, "mapper", self.mapper);
+                const nrom: *NROM = @fieldParentPtr("mapper", self.mapper);
                 self.allocator.destroy(nrom);
             },
 
             .mmc1 => {
-                var mmc1 = @fieldParentPtr(MMC1, "mapper", self.mapper);
+                const mmc1: *MMC1 = @fieldParentPtr("mapper", self.mapper);
                 self.allocator.destroy(mmc1);
             },
 
             .UxROM => {
-                var uxROM = @fieldParentPtr(UxROM, "mapper", self.mapper);
+                const uxROM: *UxROM = @fieldParentPtr("mapper", self.mapper);
                 self.allocator.destroy(uxROM);
             },
         }

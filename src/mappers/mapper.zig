@@ -67,8 +67,8 @@ pub const Mapper = struct {
             .one_screen_upper => return 0x2400 + a % 0x400,
             .vertical => return (a & 0x2000) + (a % 0x800),
             .horizontal => {
-                var base: u16 = if (a >= 0x2800) 0x2400 else 0x2000;
-                var offset = a % 0x400;
+                const base: u16 = if (a >= 0x2800) 0x2400 else 0x2000;
+                const offset = a % 0x400;
                 return base + offset;
             },
         }

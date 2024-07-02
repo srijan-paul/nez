@@ -29,18 +29,18 @@ pub const Console = struct {
 
     /// Initialize an NES console from a ROM file.
     pub fn fromROMFile(allocator: Allocator, file_path: [*:0]const u8) !Self {
-        var cart = try allocator.create(Cart);
+        const cart = try allocator.create(Cart);
         cart.* = try Cart.loadFromFile(allocator, file_path);
 
-        var ppu = try allocator.create(PPU);
+        const ppu = try allocator.create(PPU);
 
-        var gamepad = try allocator.create(Gamepad);
+        const gamepad = try allocator.create(Gamepad);
         gamepad.* = Gamepad{};
 
         var mainBus = try allocator.create(NESBus);
         mainBus.* = try NESBus.init(allocator, cart, ppu, gamepad);
 
-        var cpu = try allocator.create(CPU);
+        const cpu = try allocator.create(CPU);
         cpu.* = CPU.init(allocator, &mainBus.bus);
 
         ppu.* = PPU.init(cpu, mainBus.mapper);
@@ -82,7 +82,7 @@ pub const Console = struct {
     // Retrurns the number of CPU cycles executed.
     pub fn update(self: *Self, dt: u64) !u64 {
         if (self.is_paused) return 0;
-        var cpu_cycles: u64 = @intFromFloat(
+        const cpu_cycles: u64 = @intFromFloat(
             std.math.floor(@as(f64, @floatFromInt(dt)) * cpu_cycles_per_ms),
         );
         if (cpu_cycles < 1) return 0;

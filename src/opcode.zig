@@ -334,7 +334,7 @@ comptime {
 
 const T = std.testing;
 test "instruction lookup table" {
-    var lda_imm = lookup_table[0xA9];
+    const lda_imm = lookup_table[0xA9];
     try T.expectEqual(Op.LDA, lda_imm[0]);
     try T.expectEqual(AddrMode.Immediate, lda_imm[1]);
     try T.expectEqual(@as(u8, 2), lda_imm[2]);

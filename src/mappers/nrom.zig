@@ -34,7 +34,7 @@ pub const NROM = struct {
             // If there is only 1 bank, it is mirrored into both banks 1 and two.
             // To avoid maintaining two identical memory regions,
             // I route all read/writes to the second bank into the first one.
-            var resolved_addr = if (addr >= prg_rom_bank_2.start)
+            const resolved_addr = if (addr >= prg_rom_bank_2.start)
                 addr - prg_rom_bank_2.start
             else
                 addr - prg_rom_bank_1.start;
@@ -48,28 +48,28 @@ pub const NROM = struct {
 
     /// Perform a read issued by the CPU
     fn nromRead(i_mapper: *Mapper, addr: u16) u8 {
-        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
-        var ptr = self.resolveAddr(addr);
+        const self: *Self = @fieldParentPtr("mapper", i_mapper);
+        const ptr = self.resolveAddr(addr);
         return ptr.*;
     }
 
     /// Perform a write issued by the CPU
     fn nromWrite(i_mapper: *Mapper, addr: u16, value: u8) void {
-        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
-        var ptr = self.resolveAddr(addr);
+        const self: *Self = @fieldParentPtr("mapper", i_mapper);
+        const ptr = self.resolveAddr(addr);
         ptr.* = value;
     }
 
     /// Read a byte from the cartridge's CHR ROM.
     fn ppuRead(i_mapper: *Mapper, addr: u16) u8 {
-        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
+        const self: *Self = @fieldParentPtr("mapper", i_mapper);
         if (addr < 0x2000) return self.cart.chr_rom[addr];
         return self.ppu.readRAM(addr);
     }
 
     /// Write a byte to PPU memory.
     fn ppuWrite(i_mapper: *Mapper, addr: u16, value: u8) void {
-        var self: *Self = @fieldParentPtr(Self, "mapper", i_mapper);
+        const self: *Self = @fieldParentPtr("mapper", i_mapper);
         // CHR ROM is read-only.
         if (addr < 0x2000) return;
         self.ppu.writeRAM(addr, value);

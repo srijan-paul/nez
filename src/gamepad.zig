@@ -41,10 +41,10 @@ next_button: u3 = 0,
 /// The status each button is reported over the course of 8 reads from $4016, in the following order:
 /// A, B, Select, Start, Up, Down, Left, Right
 pub fn read(self: *Self) u8 {
-    var strobe = self.input & 0b1 == 1;
+    const strobe = self.input & 0b1 == 1;
     if (strobe) self.next_button = 0;
 
-    var is_pressed = self.buttons[self.next_button];
+    const is_pressed = self.buttons[self.next_button];
     self.next_button = @addWithOverflow(self.next_button, 1)[0];
 
     // std.debug.print("button: {any}\n", .{self.buttons});

@@ -225,7 +225,7 @@ pub const PPU = struct {
         /// Shift the contents of the register one bit to the right, and
         /// return the bit that was shifted out (this will be the LSB).
         pub fn shift(self: *ShiftReg16) void {
-            var bits: u16 = @bitCast(self.*);
+            const bits: u16 = @bitCast(self.*);
             self.* = @bitCast(bits >> 1);
         }
 
@@ -304,7 +304,7 @@ pub const PPU = struct {
     /// `row`: The row of the tile to fetch (0-7)
     fn fetchFromPatternTable(self: *Self, tile: u16, is_low_plane: bool, pt_number: u1, row: u8) u8 {
         std.debug.assert(row < 8);
-        var pt_addr = (@as(u16, pt_number) * 0x1000) + (tile * 16) + row;
+        const pt_addr = (@as(u16, pt_number) * 0x1000) + (tile * 16) + row;
         return if (is_low_plane) self.readByte(pt_addr) else self.readByte(pt_addr + 8);
     }
 
@@ -315,7 +315,7 @@ pub const PPU = struct {
     ///
     /// `is_low_plane`: `true` if we're fetching a byte from the low-bitplane of the tile.
     fn fetchPatternTableBG(self: *Self, addr: u16, is_low_plane: bool) u8 {
-        var pt_number: u1 = if (self.ppu_ctrl.pattern_background) 1 else 0;
+        const pt_number: u1 = if (self.ppu_ctrl.pattern_background) 1 else 0;
         return self.fetchFromPatternTable(addr, is_low_plane, pt_number, self.vram_addr.fine_y);
     }
 
@@ -326,17 +326,17 @@ pub const PPU = struct {
     ///
     /// `is_low_plane`: `true` if we're fetching a byte from the low-bitplane of the tile.
     fn fetchSpritePattern(self: *Self, addr: u16, is_low_plane: bool, row: u8) u8 {
-        var pt_number: u1 = if (self.ppu_ctrl.pattern_sprite) 1 else 0;
+        const pt_number: u1 = if (self.ppu_ctrl.pattern_sprite) 1 else 0;
         return self.fetchFromPatternTable(addr, is_low_plane, pt_number, row);
     }
 
     /// Fetch the next byte from the name table.
     fn fetchNameTableByte(self: *Self) u8 {
-        var coarse_y: u16 = self.vram_addr.coarse_y;
-        var coarse_x: u16 = self.vram_addr.coarse_x;
-        var nt_number: u16 = self.vram_addr.nametable;
+        const coarse_y: u16 = self.vram_addr.coarse_y;
+        const coarse_x: u16 = self.vram_addr.coarse_x;
+        const nt_number: u16 = self.vram_addr.nametable;
 
-        var nt_addr =
+        const nt_addr =
             nametable_base_addr +
             (nametable_size * nt_number) +
             coarse_y * 32 +
@@ -347,20 +347,20 @@ pub const PPU = struct {
 
     /// Fetch the 8-bit attribute byte for the tile at the current VRAM address.
     fn fetchAttrTableByte(self: *Self) u8 {
-        var tile_col: u8 = self.vram_addr.coarse_x;
-        var tile_row: u8 = self.vram_addr.coarse_y;
+        const tile_col: u8 = self.vram_addr.coarse_x;
+        const tile_row: u8 = self.vram_addr.coarse_y;
 
-        var at_col: u16 = tile_col / 4;
-        var at_row: u16 = tile_row / 4;
+        const at_col: u16 = tile_col / 4;
+        const at_row: u16 = tile_row / 4;
 
-        var nt_number: u16 = self.vram_addr.nametable;
+        const nt_number: u16 = self.vram_addr.nametable;
         std.debug.assert(nt_number < 4);
-        var at_base_addr = nametable_base_addr +
+        const at_base_addr = nametable_base_addr +
             (nametable_size * nt_number) +
             0x3C0; // each nametable is 960 bytes long.
 
-        var at_offset = at_row * 8 + at_col;
-        var at_addr = at_base_addr + at_offset;
+        const at_offset = at_row * 8 + at_col;
+        const at_addr = at_base_addr + at_offset;
 
         std.debug.assert(at_addr >= at_base_addr and at_addr < at_base_addr + 64);
         return self.readByte(at_addr);
@@ -412,15 +412,15 @@ pub const PPU = struct {
     fn fetchBGPixel(self: *Self) u16 {
         // Fetch the pattern table bits for the current pixel.
         // Use that to select a color from the palette.
-        var fine_x: u3 = @truncate(self.fine_x);
-        var pt_lo = (self.pattern_table_shifter_lo.curr_tile >> fine_x) & 0b1;
-        var pt_hi = (self.pattern_table_shifter_hi.curr_tile >> fine_x) & 0b1;
-        var color_index = pt_hi << 1 | pt_lo;
+        const fine_x: u3 = @truncate(self.fine_x);
+        const pt_lo = (self.pattern_table_shifter_lo.curr_tile >> fine_x) & 0b1;
+        const pt_hi = (self.pattern_table_shifter_hi.curr_tile >> fine_x) & 0b1;
+        const color_index = pt_hi << 1 | pt_lo;
 
-        var palette_lo = (self.bg_palette_shifter_lo >> fine_x) & 0b1;
-        var palette_hi = (self.bg_palette_shifter_hi >> fine_x) & 0b1;
-        var palette_index = palette_hi << 1 | palette_lo;
-        var palette_base_addr = bg_palette_base_addr + palette_index * palette_size;
+        const palette_lo = (self.bg_palette_shifter_lo >> fine_x) & 0b1;
+        const palette_hi = (self.bg_palette_shifter_hi >> fine_x) & 0b1;
+        const palette_index = palette_hi << 1 | palette_lo;
+        const palette_base_addr = bg_palette_base_addr + palette_index * palette_size;
         return palette_base_addr + color_index;
     }
 
@@ -431,23 +431,23 @@ pub const PPU = struct {
         // there should be drawn on top of the background.
         // Ref: https://www.nesdev.org/wiki/PPU_sprite_priority
         for (0..8) |i| {
-            var sprite = self.sprites_on_scanline[i];
-            var sprite_x_start = sprite.x;
-            var sprite_x_end = @addWithOverflow(sprite_x_start, 8)[0];
-            var current_x = self.cycle;
+            const sprite = self.sprites_on_scanline[i];
+            const sprite_x_start = sprite.x;
+            const sprite_x_end = @addWithOverflow(sprite_x_start, 8)[0];
+            const current_x = self.cycle;
             if (current_x >= sprite_x_start and current_x < sprite_x_end) {
-                var px = current_x - sprite_x_start;
-                var color_hi = (sprite.pattern_hi >> @truncate(7 - px)) & 0b1;
-                var color_lo = (sprite.pattern_lo >> @truncate(7 - px)) & 0b1;
+                const px = current_x - sprite_x_start;
+                const color_hi = (sprite.pattern_hi >> @truncate(7 - px)) & 0b1;
+                const color_lo = (sprite.pattern_lo >> @truncate(7 - px)) & 0b1;
 
                 // index of the color inside a palette (0-4)
-                var color_index: u16 = color_hi << 1 | color_lo;
+                const color_index: u16 = color_hi << 1 | color_lo;
                 // The sprite pixel only gets drawn on top of the background pixel if:
                 // 1. The sprite pixel is opaque (i.e not color 0, 4, 8, 12), AND has front priority.
                 // 2. The background pixel is transparent (i.e color 0, 4, 8, 12 in the background palette).
-                var is_sprite_px_opaque = color_index % 4 != 0;
-                var is_sprite_fg = !sprite.attr.is_behind_bg;
-                var is_bg_transparent = (bg_color_addr - bg_palette_base_addr) % 4 == 0;
+                const is_sprite_px_opaque = color_index % 4 != 0;
+                const is_sprite_fg = !sprite.attr.is_behind_bg;
+                const is_bg_transparent = (bg_color_addr - bg_palette_base_addr) % 4 == 0;
 
                 // Sprite zero hit: https://www.nesdev.org/wiki/PPU_OAM#Sprite_zero_hits
                 // This happens regardless of sprite priority.
@@ -460,8 +460,8 @@ pub const PPU = struct {
                 }
 
                 if (is_sprite_px_opaque and (is_sprite_fg or is_bg_transparent)) {
-                    var palette_index: u16 = sprite.attr.palette;
-                    var sprite_color_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
+                    const palette_index: u16 = sprite.attr.palette;
+                    const sprite_color_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
                     return sprite_color_addr;
                 }
             }
@@ -482,12 +482,12 @@ pub const PPU = struct {
             color_addr = self.fetchSpritePixel(color_addr);
         }
 
-        var color_id = self.readByte(color_addr);
-        var color = Palette[color_id];
+        const color_id = self.readByte(color_addr);
+        const color = Palette[color_id];
 
         std.debug.assert(self.frame_buffer_pos < self.frame_buffer.len);
         self.frame_buffer[self.frame_buffer_pos] = color_id;
-        var render_buf_index = self.frame_buffer_pos * 3;
+        const render_buf_index = self.frame_buffer_pos * 3;
         self.render_buffer[render_buf_index] = color.r;
         self.render_buffer[render_buf_index + 1] = color.g;
         self.render_buffer[render_buf_index + 2] = color.b;
@@ -502,16 +502,16 @@ pub const PPU = struct {
         self.pattern_table_shifter_hi.nextTile(self.pattern_hi);
 
         // Load the 2-bit palette latch from the 8-bit attribute latch.
-        var tile_col: u8 = self.vram_addr.coarse_x;
-        var tile_row: u8 = self.vram_addr.coarse_y;
+        const tile_col: u8 = self.vram_addr.coarse_x;
+        const tile_row: u8 = self.vram_addr.coarse_y;
 
         // Find the 2-bit palette index for the current tile from within the 8-bit attribute byte.
-        var y = tile_row % 4;
-        var x = tile_col % 4;
-        var shift = (((y >> 1) & 1) << 1 | ((x >> 1) & 1)) * 2;
+        const y = tile_row % 4;
+        const x = tile_col % 4;
+        const shift = (((y >> 1) & 1) << 1 | ((x >> 1) & 1)) * 2;
         std.debug.assert(shift < 8 and shift % 2 == 0);
 
-        var palette_index = (self.bg_attr_latch >> @truncate(shift)) & 0b0000_0011;
+        const palette_index = (self.bg_attr_latch >> @truncate(shift)) & 0b0000_0011;
         self.bg_palette_latch = palette_index;
     }
 
@@ -520,9 +520,9 @@ pub const PPU = struct {
         var lo_shifter: ShiftReg16 = self.pattern_table_shifter_lo;
         var hi_shifter: ShiftReg16 = self.pattern_table_shifter_hi;
         for (0..16) |i| {
-            var lo_bit = lo_shifter.lsb();
-            var hi_bit = hi_shifter.lsb();
-            var c = hi_bit << 1 | lo_bit;
+            const lo_bit = lo_shifter.lsb();
+            const hi_bit = hi_shifter.lsb();
+            const c = hi_bit << 1 | lo_bit;
             colors[15 - i] = c;
             lo_shifter.shift();
             hi_shifter.shift();
@@ -614,17 +614,17 @@ pub const PPU = struct {
     fn copySpritesToSecondaryOAM(self: *Self) void {
         self.next_scanline_has_sprite0 = false;
 
-        var sprite_height: u16 = if (self.ppu_ctrl.sprite_is_8x16) 16 else 8;
+        const sprite_height: u16 = if (self.ppu_ctrl.sprite_is_8x16) 16 else 8;
         var num_sprites: u8 = 0;
         for (0..64) |sprite_index| {
             // If we've already found 8 sprites, stop copying.
             if (num_sprites == 8) break;
 
-            var oam_index = 4 * sprite_index;
-            var y: u16 = self.oam[oam_index];
-            var screen_y = self.scanline;
+            const oam_index = 4 * sprite_index;
+            const y: u16 = self.oam[oam_index];
+            const screen_y = self.scanline;
 
-            var is_visible_on_line = y <= screen_y and (y + sprite_height) > screen_y;
+            const is_visible_on_line = y <= screen_y and (y + sprite_height) > screen_y;
             if (!is_visible_on_line) continue;
 
             // Does this scanline contain the 0th sprite from OAM?
@@ -654,21 +654,21 @@ pub const PPU = struct {
         // This should happen between cycles 64 and 256, but I do it all at once on dot-64.
         if (self.cycle == 64) self.copySpritesToSecondaryOAM();
 
-        var tall_sprites = self.ppu_ctrl.sprite_is_8x16;
+        const tall_sprites = self.ppu_ctrl.sprite_is_8x16;
         // Use sprite data from secondary OAM to fill sprites latches.
         // TODO: should I do these in a cycle accurate manner, since we're reading from the pattern table?
         if (self.cycle == 257) {
             for (0..self.num_sprites_on_scanline) |i| {
                 std.debug.assert(i <= 7);
-                var j = i * 4; // each sprite is 4 bytes long.
-                var sprite_y = self.secondary_oam[j];
+                const j = i * 4; // each sprite is 4 bytes long.
+                const sprite_y = self.secondary_oam[j];
                 var tile_index = self.secondary_oam[j + 1];
-                var attrs: SpriteAttributes = @bitCast(self.secondary_oam[j + 2]);
-                var sprite_x = self.secondary_oam[j + 3];
+                const attrs: SpriteAttributes = @bitCast(self.secondary_oam[j + 2]);
+                const sprite_x = self.secondary_oam[j + 3];
 
                 var row: u8 = @truncate(self.scanline - sprite_y);
 
-                var is_second_half = row > 7; // for 8x16 sprites
+                const is_second_half = row > 7; // for 8x16 sprites
                 if (is_second_half) row -= 8;
 
                 if (tall_sprites and
@@ -690,7 +690,7 @@ pub const PPU = struct {
                     pt_hi = reversed_bits[pt_hi];
                 }
 
-                var sprite: Sprite = .{
+                const sprite: Sprite = .{
                     .y = sprite_y,
                     .x = sprite_x,
                     .pattern_lo = pt_lo,
@@ -716,9 +716,9 @@ pub const PPU = struct {
             self.frame_buffer_pos = 0;
         }
 
-        var is_prerender_line = self.scanline == 261;
+        const is_prerender_line = self.scanline == 261;
 
-        var draw_bg = self.ppu_mask.draw_bg;
+        const draw_bg = self.ppu_mask.draw_bg;
 
         // The 0th cycle is idle, nothing happens apart from regular rendering.
         if (self.cycle == 0) {
@@ -745,7 +745,7 @@ pub const PPU = struct {
 
         if (self.ppu_mask.draw_sprites) self.spriteEval();
 
-        var subcycle = self.cycle % 8;
+        const subcycle = self.cycle % 8;
         switch (self.cycle) {
             // 1 -> 255 are the visible dots.
             // On these dots, one pixel is rendered to the screen.
@@ -873,7 +873,7 @@ pub const PPU = struct {
             // 2. Set the bits 9-14 of the t register.
             // 3. Clear the 15th bit of the t register.
             var t: u15 = @bitCast(self.t);
-            var addr_hi: u15 = value & 0b00_111111;
+            const addr_hi: u15 = value & 0b00_111111;
             // Note that the 15th bit of t is also being cleared here.
             // Because the address space of the PPU is 14-bits, the 15-bit bit is always 0.
             t = (t & 0b0_000_000_1111_1111) | (addr_hi << 8);
@@ -881,7 +881,7 @@ pub const PPU = struct {
         } else {
             // Write the byte to the lower 8 bits of t.
             var t: u15 = @bitCast(self.t);
-            var lo: u15 = value;
+            const lo: u15 = value;
             // Clear the existing lower 8 bits of t.
             // Then set the lower 8 bits of t to the operand byte.
             t = (t & 0b1111_111_0000_0000) | lo;
@@ -895,7 +895,7 @@ pub const PPU = struct {
     /// Read the PPUSTATUS register.
     /// This will reset the address latch, and clear the vblank flag.
     fn readPPUStatus(self: *Self) u8 {
-        var status: u8 = @bitCast(self.ppu_status);
+        const status: u8 = @bitCast(self.ppu_status);
         self.is_first_write = true;
         self.ppu_status.in_vblank = false;
         return status;
@@ -909,13 +909,13 @@ pub const PPU = struct {
         self.mapper.ppuWrite(addr, value);
 
         // increment the address in PPUADDR (and the `v` register).
-        var is_render_line = self.scanline < 240 or self.scanline == 261;
-        var is_rendering_enabled = self.ppu_mask.draw_bg or self.ppu_mask.draw_sprites;
+        const is_render_line = self.scanline < 240 or self.scanline == 261;
+        const is_rendering_enabled = self.ppu_mask.draw_bg or self.ppu_mask.draw_sprites;
         if (is_render_line and is_rendering_enabled) {
             self.incrCoarseX();
             self.incrY();
         } else {
-            var addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
+            const addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
             addr = @addWithOverflow(addr, addr_increment)[0];
             self.vram_addr = @bitCast(addr);
         }
@@ -931,7 +931,7 @@ pub const PPU = struct {
         // Reading from palette RAM is instant.
         if (addr >= 0x3F00) data = self.ppu_data_latch;
 
-        var addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
+        const addr_increment: u15 = if (self.ppu_ctrl.increment_mode_32) 32 else 1;
         addr = @addWithOverflow(addr, addr_increment)[0];
         self.vram_addr = @bitCast(addr);
         return data;
@@ -1023,7 +1023,7 @@ pub const PPU = struct {
     /// The address must be in range [0, 7].
     pub fn writeRegister(self: *Self, addr: u16, val: u8) void {
         std.debug.assert(addr >= 0x2000 and addr < 0x4000);
-        var register = addr & 0b111;
+        const register = addr & 0b111;
 
         switch (register) {
             0 => { // PPUCTRL
@@ -1046,7 +1046,7 @@ pub const PPU = struct {
     /// The address must be in range [0, 7].
     pub fn readRegister(self: *Self, addr: u16) u8 {
         std.debug.assert(addr >= 0x2000 and addr < 0x4000);
-        var register = addr & 0b111;
+        const register = addr & 0b111;
 
         return switch (register) {
             2 => self.readPPUStatus(),
@@ -1063,25 +1063,25 @@ pub const PPU = struct {
 
     /// Dump the contents of the name table to a buffer.
     pub fn dumpNameTable(self: *Self, allocator: std.mem.Allocator) !void {
-        var buf = try allocator.alloc(u8, 0);
+        const buf = try allocator.alloc(u8, 0);
         defer allocator.free(buf);
 
         for (nametable_base_addr..nametable_base_addr + nametable_size) |i| {
-            var byte = self.readByte(@truncate(i));
+            const byte = self.readByte(@truncate(i));
 
             if (i % 32 == 0) {
-                var newBuf = try std.fmt.allocPrint(allocator, "\n[${x}]: ", .{i});
+                const newBuf = try std.fmt.allocPrint(allocator, "\n[${x}]: ", .{i});
                 defer allocator.free(newBuf);
 
-                var tmp = try concat(allocator, buf, newBuf);
+                const tmp = try concat(allocator, buf, newBuf);
                 allocator.free(buf);
                 buf = tmp;
             }
 
-            var newBuf = try std.fmt.allocPrint(allocator, "{x} ", .{byte});
+            const newBuf = try std.fmt.allocPrint(allocator, "{x} ", .{byte});
             defer allocator.free(newBuf);
 
-            var tmp = try concat(allocator, buf, newBuf);
+            const tmp = try concat(allocator, buf, newBuf);
             allocator.free(buf);
             buf = tmp;
         }
@@ -1103,7 +1103,7 @@ pub const PPU = struct {
             if (i % 16 == 0) {
                 std.debug.print("\n", .{});
             }
-            var byte = self.oam[i];
+            const byte = self.oam[i];
             if (byte >= 0x20 and byte < 0x7F) {
                 std.debug.print("{c}", .{byte});
             } else {
@@ -1116,11 +1116,11 @@ pub const PPU = struct {
     pub fn getPaletteColors(self: *Self, is_background: bool, palette_index: u8) [4]u8 {
         std.debug.assert(palette_index < 4);
 
-        var base_addr = if (is_background) bg_palette_base_addr else fg_palette_base_addr;
+        const base_addr = if (is_background) bg_palette_base_addr else fg_palette_base_addr;
 
         var colors_buf: [4]u8 = undefined;
         for (0..4) |i| {
-            var iu16: u16 = @truncate(i);
+            const iu16: u16 = @truncate(i);
             colors_buf[i] = self.readRAM(
                 base_addr + // base address of PPU palette RAM
                     (palette_size * palette_index) + // offset to the palette
@@ -1146,34 +1146,34 @@ pub const PPU = struct {
         }
 
         for (0..16) |y| { // iterate over row of tiles in the pattern table.
-            var tile_y: u16 = @truncate(y);
+            const tile_y: u16 = @truncate(y);
             for (0..16) |x| { // iterate over tiles in the PT row.
-                var tile_x: u16 = @truncate(x);
+                const tile_x: u16 = @truncate(x);
                 // address of the first byte of the tile in the pattern table.
                 // This is used to index the pattern table in PPU RAM.
-                var tile_offset = tile_y * 256 + tile_x * 16;
-                var pt_addr = pt_index * 0x1000 + tile_offset;
+                const tile_offset = tile_y * 256 + tile_x * 16;
+                const pt_addr = pt_index * 0x1000 + tile_offset;
 
                 for (0..8) |pxrow| { // a row of pixels within the tile.
-                    var px_row: u16 = @truncate(pxrow);
+                    const px_row: u16 = @truncate(pxrow);
                     // each row is 2 bytes – a low byte and high byte.
-                    var lo_byte = self.mapper.ppuRead(pt_addr + px_row);
-                    var hi_byte = self.mapper.ppuRead(pt_addr + px_row + 8);
+                    const lo_byte = self.mapper.ppuRead(pt_addr + px_row);
+                    const hi_byte = self.mapper.ppuRead(pt_addr + px_row + 8);
 
                     // loop over each pixel in the first row of the 8x8 tile.
                     for (0..8) |px| {
-                        var lo_bit = (lo_byte >> @truncate(px)) & 0b1;
-                        var hi_bit = (hi_byte >> @truncate(px)) & 0b1;
+                        const lo_bit = (lo_byte >> @truncate(px)) & 0b1;
+                        const hi_bit = (hi_byte >> @truncate(px)) & 0b1;
 
-                        var color_index = hi_bit << 1 | lo_bit;
-                        var addr = bg_palette_base_addr + 16 * palette_index + color_index;
-                        var color_id = self.readByte(addr);
+                        const color_index = hi_bit << 1 | lo_bit;
+                        const addr = bg_palette_base_addr + 16 * palette_index + color_index;
+                        const color_id = self.readByte(addr);
 
                         // address of the pixel in the buffer.
                         // it took me a good while to figure this out. OOF
-                        var buf_addr_row = tile_y * 8 + px_row;
-                        var buf_addr_col = tile_x * 8 + (7 - px);
-                        var buf_addr = buf_addr_row * 128 + buf_addr_col;
+                        const buf_addr_row = tile_y * 8 + px_row;
+                        const buf_addr_col = tile_x * 8 + (7 - px);
+                        const buf_addr = buf_addr_row * 128 + buf_addr_col;
                         std.debug.assert(buf_addr < buf.len);
                         buf[buf_addr] = color_id;
                     }
@@ -1186,27 +1186,27 @@ pub const PPU = struct {
     pub fn getSpriteData(self: *Self, buf: []u8) void {
         std.debug.assert(buf.len == 64 * 8 * 8); // 64 sprites, each is 8x8
         // decide the pattern table to use for the sprites based on the PPUCTRL register
-        var pt_base_addr: u16 = if (self.ppu_ctrl.pattern_sprite) 0x1000 else 0x0000;
+        const pt_base_addr: u16 = if (self.ppu_ctrl.pattern_sprite) 0x1000 else 0x0000;
         const sprites_per_row = 8;
         const sprites_per_col = 8;
         for (0..64) |sprite_index| {
-            var tile_index: u16 = self.oam[sprite_index * 4 + 1];
-            var attrs: SpriteAttributes = @bitCast(self.oam[sprite_index * 4 + 2]);
-            var palette_index: u16 = attrs.palette;
+            const tile_index: u16 = self.oam[sprite_index * 4 + 1];
+            const attrs: SpriteAttributes = @bitCast(self.oam[sprite_index * 4 + 2]);
+            const palette_index: u16 = attrs.palette;
             for (0..8) |pxrow| {
-                var px_row: u16 = @truncate(pxrow);
-                var lo_byte = self.readByte(pt_base_addr + tile_index * 16 + px_row);
-                var hi_byte = self.readByte(pt_base_addr + tile_index * 16 + px_row + 8);
+                const px_row: u16 = @truncate(pxrow);
+                const lo_byte = self.readByte(pt_base_addr + tile_index * 16 + px_row);
+                const hi_byte = self.readByte(pt_base_addr + tile_index * 16 + px_row + 8);
                 for (0..8) |px| {
-                    var lo_bit = (lo_byte >> @truncate(7 - px)) & 0b1;
-                    var hi_bit = (hi_byte >> @truncate(7 - px)) & 0b1;
-                    var color_index = hi_bit << 1 | lo_bit;
-                    var addr = fg_palette_base_addr + palette_size * palette_index + color_index;
-                    var color_id = self.readByte(addr);
+                    const lo_bit = (lo_byte >> @truncate(7 - px)) & 0b1;
+                    const hi_bit = (hi_byte >> @truncate(7 - px)) & 0b1;
+                    const color_index = hi_bit << 1 | lo_bit;
+                    const addr = fg_palette_base_addr + palette_size * palette_index + color_index;
+                    const color_id = self.readByte(addr);
 
-                    var bufrow = (sprite_index / sprites_per_row) * 8 + px_row;
-                    var bufcol = (sprite_index % sprites_per_col) * 8 + px;
-                    var buf_index = bufrow * 64 + bufcol;
+                    const bufrow = (sprite_index / sprites_per_row) * 8 + px_row;
+                    const bufcol = (sprite_index % sprites_per_col) * 8 + px;
+                    const buf_index = bufrow * 64 + bufcol;
                     std.debug.assert(buf_index < buf.len);
                     buf[buf_index] = color_id;
                 }
@@ -1217,25 +1217,25 @@ pub const PPU = struct {
     /// Load the colors of a sprite into a buffer.
     pub fn getSprite(self: *Self, oam_index: u8, buf: []u8) void {
         std.debug.assert(buf.len == 8 * 8 * 3);
-        var pt_base_addr: u16 = if (self.ppu_ctrl.pattern_sprite) 0x1000 else 0x0000;
-        var tile_index: u16 = self.oam[oam_index * 4 + 1];
-        var attrs: SpriteAttributes = @bitCast(self.oam[oam_index * 4 + 2]);
-        var palette_index = attrs.palette;
+        const pt_base_addr: u16 = if (self.ppu_ctrl.pattern_sprite) 0x1000 else 0x0000;
+        const tile_index: u16 = self.oam[oam_index * 4 + 1];
+        const attrs: SpriteAttributes = @bitCast(self.oam[oam_index * 4 + 2]);
+        const palette_index = attrs.palette;
         for (0..8) |pxrow| {
-            var px_row: u16 = @truncate(pxrow);
-            var lo_byte = self.readByte(pt_base_addr + tile_index * 16 + px_row);
-            var hi_byte = self.readByte(pt_base_addr + tile_index * 16 + px_row + 8);
+            const px_row: u16 = @truncate(pxrow);
+            const lo_byte = self.readByte(pt_base_addr + tile_index * 16 + px_row);
+            const hi_byte = self.readByte(pt_base_addr + tile_index * 16 + px_row + 8);
             for (0..8) |px_| {
-                var pxcol: u8 = @truncate(px_);
-                var lo_bit = (lo_byte >> @truncate(7 - pxcol)) & 0b1;
-                var hi_bit = (hi_byte >> @truncate(7 - pxcol)) & 0b1;
-                var color_index = hi_bit << 1 | lo_bit;
-                var addr = fg_palette_base_addr + palette_size * palette_index + color_index;
-                var color_id = self.readByte(addr);
+                const pxcol: u8 = @truncate(px_);
+                const lo_bit = (lo_byte >> @truncate(7 - pxcol)) & 0b1;
+                const hi_bit = (hi_byte >> @truncate(7 - pxcol)) & 0b1;
+                const color_index = hi_bit << 1 | lo_bit;
+                const addr = fg_palette_base_addr + palette_size * palette_index + color_index;
+                const color_id = self.readByte(addr);
 
-                var color = Palette[color_id];
+                const color = Palette[color_id];
 
-                var buf_index = (pxrow * 8 + pxcol) * 3;
+                const buf_index = (pxrow * 8 + pxcol) * 3;
                 std.debug.assert(buf_index < buf.len);
                 buf[buf_index] = color.r;
                 buf[buf_index + 1] = color.g;

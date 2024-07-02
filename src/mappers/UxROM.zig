@@ -18,15 +18,15 @@ mapper: Mapper,
 // write to the bank select register
 fn setPRGBank(self: *Self, value: u8) void {
     // mask away the high bits of the bank number if out of range.
-    var mask = util.bankingMask(self.prg_rom_bank_count);
-    var bank: u32 = (value & 0b1111) & mask;
-    var bank_start = bank * 0x4000;
-    var bank_end = bank_start + 0x4000; // each PRG Bank is 16Kb
+    const mask = util.bankingMask(self.prg_rom_bank_count);
+    const bank: u32 = (value & 0b1111) & mask;
+    const bank_start = bank * 0x4000;
+    const bank_end = bank_start + 0x4000; // each PRG Bank is 16Kb
     self.prg_bank1 = self.cart.prg_rom[bank_start..bank_end];
 }
 
 fn read(m: *Mapper, addr: u16) u8 {
-    var self = @fieldParentPtr(Self, "mapper", m);
+    const self: *Self = @fieldParentPtr("mapper", m);
     return switch (addr) {
         0x0000...0x5FFF => std.debug.panic("Open bus reads not emulated.\n", .{}),
         0x6000...0x7FFF => self.cart.prg_ram[addr - 0x6000],
@@ -36,7 +36,7 @@ fn read(m: *Mapper, addr: u16) u8 {
 }
 
 fn write(m: *Mapper, addr: u16, value: u8) void {
-    var self = @fieldParentPtr(Self, "mapper", m);
+    const self: *Self = @fieldParentPtr("mapper", m);
     switch (addr) {
         0x0000...0x5FFF => std.debug.panic("Open bus reads not emulated.\n", .{}),
         0x6000...0x7FFF => self.cart.prg_ram[addr - 0x6000] = value,
@@ -45,7 +45,7 @@ fn write(m: *Mapper, addr: u16, value: u8) void {
 }
 /// Read a byte from the cartridge's CHR ROM.
 fn ppuRead(m: *Mapper, addr: u16) u8 {
-    var self: *Self = @fieldParentPtr(Self, "mapper", m);
+    const self: *Self = @fieldParentPtr("mapper", m);
     if (addr < 0x2000) {
         if (self.has_chr_ram) return self.cart.chr_ram[addr];
         return self.cart.chr_rom[addr];
@@ -60,7 +60,7 @@ fn ppuRead(m: *Mapper, addr: u16) u8 {
 
 /// Write a byte to PPU memory.
 fn ppuWrite(m: *Mapper, addr: u16, value: u8) void {
-    var self: *Self = @fieldParentPtr(Self, "mapper", m);
+    const self: *Self = @fieldParentPtr("mapper", m);
     if (addr < 0x2000) {
         if (self.has_chr_ram) {
             self.cart.chr_ram[addr] = value;
@@ -91,8 +91,8 @@ pub fn init(cart: *Cart, ppu: *PPU) Self {
     else
         .horizontal;
 
-    var last_bank_start = @as(u32, (self.prg_rom_bank_count - 1)) * 0x4000;
-    var last_bank_end = last_bank_start + 0x4000;
+    const last_bank_start = @as(u32, (self.prg_rom_bank_count - 1)) * 0x4000;
+    const last_bank_end = last_bank_start + 0x4000;
     self.prg_bank2 = cart.prg_rom[last_bank_start..last_bank_end];
     // initially, map the address space to the first bank.
     self.setPRGBank(0);
