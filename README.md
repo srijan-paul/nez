@@ -5,6 +5,9 @@ The emulation is cycle accurate (as accurate as I could make it), and the code w
 A secondary goal of this project is to be a learning resource for anyone wanting to write their
 own emulator.
 
+> **NOTE**: This repo is compatible with Zig v0.12.1.
+> Should also work with Zig <= 0.14.0, but I haven't tested it.
+
 <div style="display: flex; gap: 10px;">
     <img src="./screens/pacman.png" alt="pacman home screen" width="300px"/>
     <img src="./screens/donkey-kong.png" alt="donkey kong gameplay" width="300px"/>
