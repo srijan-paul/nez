@@ -1,9 +1,9 @@
 # Nez
 
 An emulator for the Nintendo Entertainment System made using zig and raylib.
-The emulation is cycle accurate (as accurate as I could make it),
-and the code well commented and avoids any clever optimizations.
-The project is  meant to serve as an example to anyone wanting to write their own. 
+The emulation is cycle accurate (as accurate as I could make it), and the code well commented.
+A secondary goal of this project is to be a learning resource for anyone wanting to write their
+own emulator.
 
 <div style="display: flex; gap: 10px;">
     <img src="./screens/pacman.png" alt="pacman home screen" width="300px"/>
@@ -14,7 +14,7 @@ The project is  meant to serve as an example to anyone wanting to write their ow
 
 Make sure you have a ROM file in the iNES format.
 Some people download ROMs from piracy websites such as [this one](https://www.emulatorgames.net/roms/nintendo/).
-Of course, I would never recommend that ;)
+Of course, I would never recommend that!
 
 To launch a ROM from the command line:
 
@@ -42,9 +42,7 @@ Controls:
 
 ### The CPU: Ricoh-2A03
 
-An 8-bit CPU used in a wide variety of game consoles,
-the most prominent of them being the NES.
-
+An 8-bit CPU used in a wide variety of computers, the most prominent of them being the NES.
 It is a derivative of the MOS-6502 (almost an identical clone), without support for decimal mode.
 
 Resources:
@@ -88,20 +86,19 @@ The **Bus** connects the CPU, PPU, and the Cart, allowing separate components to
 
 ## Building and testing
 
-Clone the repository, then clone all submdoules, and use the zig build command
+Clone the repository, then:
 
 ```sh
 zig build run
 ```
 
-This will open a custom ROM I wrote in debug mode.
+This will open a custom ROM I wrote to debug the emulator.
 To play games, make sure you have a `.nes` file somewhere, and use:
  
  ```sh
  zig build run -- <path-to-rom>
  ```
 
-Oh, and only NROM  games are supported right now. So no contra, duck hunt, ninja gaiden, or darkwing duck, etc.
 
 The CPU has about ~10k test cases for each instruction, coming from [this awesome test repository](https://github.com/TomHarte/ProcessorTests/tree/main/nes6502).
 To run the CPU tests, use `zig test src/cpu.zig`.
@@ -115,8 +112,8 @@ To run the CPU tests, use `zig test src/cpu.zig`.
 - [x] Add support for the controller
 - [ ] Support more mappers
     - [ ] CNROM
-    - [ ] UnROM
-    - [ ] MMC1
+    - [x] UxROM
+    - [x] MMC1 (Some minor bugs remain, many games playable)
     - [ ] MMC3
     - [ ] MMC5
 - [ ] Add support for the APU.
@@ -127,4 +124,5 @@ To run the CPU tests, use `zig test src/cpu.zig`.
 I started out wanting to write a fantasy console,
 but didn't want to invent another programming language, compiler, assembler, and then write ROMs in those.
 Emulating an existing console sounded like an equally challenging, but more fruitful venture.
+
 
