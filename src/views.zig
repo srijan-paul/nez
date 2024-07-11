@@ -1,6 +1,6 @@
 const std = @import("std");
 const rl = @cImport(@cInclude("raylib.h"));
-const ppu_module = @import("../ppu/ppu.zig");
+const ppu_module = @import("./ppu/ppu.zig");
 
 const PPU = ppu_module.PPU;
 const PPUPalette = ppu_module.Palette;

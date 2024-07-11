@@ -126,6 +126,7 @@ pub const PPU = struct {
     /// Note that this is stored in R8G8B8 format (24 bits-per-pixel).
     /// I store it like this so its easier to pass it to raylib for rendering
     /// using the PIXELFORMAT_UNCOMPRESSED_R8G8B8.
+    work_buffer: [NPixels * 3]u8 = .{0} ** (NPixels * 3),
     render_buffer: [NPixels * 3]u8 = .{0} ** (NPixels * 3),
 
     /// This corresponds to the `v` register of the PPU.
@@ -472,7 +473,7 @@ pub const PPU = struct {
     }
 
     /// Write a pixel to the frame buffer.
-    fn renderPixel(self: *Self) void {
+    inline fn renderPixel(self: *Self) void {
         var color_addr = if (self.ppu_mask.draw_bg)
             self.fetchBGPixel()
         else
@@ -488,10 +489,19 @@ pub const PPU = struct {
         std.debug.assert(self.frame_buffer_pos < self.frame_buffer.len);
         self.frame_buffer[self.frame_buffer_pos] = color_id;
         const render_buf_index = self.frame_buffer_pos * 3;
-        self.render_buffer[render_buf_index] = color.r;
-        self.render_buffer[render_buf_index + 1] = color.g;
-        self.render_buffer[render_buf_index + 2] = color.b;
+        self.work_buffer[render_buf_index] = color.r;
+        self.work_buffer[render_buf_index + 1] = color.g;
+        self.work_buffer[render_buf_index + 2] = color.b;
         self.frame_buffer_pos += 1;
+
+        // swap the render buffer and the frame buffer.
+        // The render buffer will now be shown the emulator,
+        // and the new work buffer is where we draw the next frame step-by-step.
+        if (self.frame_buffer_pos >= NPixels) {
+            const t = self.render_buffer;
+            self.render_buffer = self.work_buffer;
+            self.work_buffer = t;
+        }
     }
 
     /// Load data from internal latches into the two background shift registers that store pattern table data.
@@ -586,7 +596,7 @@ pub const PPU = struct {
     /// This should only be called for cycles 1 to 255 (inclusive)
     /// in scanlines 0 to 240 (inclusive).
     /// This should *not* be called for the pre-render scanline.
-    fn visibleDot(self: *Self, subcycle: u16) void {
+    inline fn visibleDot(self: *Self, subcycle: u16) void {
         // Fetch the AT/PT/NT data for the next tile.
         if (self.ppu_mask.draw_bg) self.fetchBgTile(subcycle);
         // On every visible dot of a visible scanline, render a pixel.

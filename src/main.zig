@@ -1,5 +1,5 @@
 const rl = @cImport(@cInclude("raylib.h"));
-const views = @import("./gui/views.zig");
+const views = @import("./views.zig");
 const std = @import("std");
 const PPU = @import("./ppu/ppu.zig").PPU;
 const PPUPalette = @import("./ppu/ppu.zig").Palette;
@@ -11,7 +11,6 @@ const PaletteView = views.PaletteView;
 const PrimaryOAMView = views.PrimaryOAMView;
 const TilePreview = views.TilePreview;
 
-const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
 
 const Button = Gamepad.Button;
@@ -98,8 +97,6 @@ pub fn main() !void {
             isDebug = std.mem.eql(u8, arg, debugFlag);
         }
     }
-
-    // rl.SetConfigFlags(rl.FLAG_WINDOW_RESIZABLE);
 
     if (isDebug) {
         rl.InitWindow(800, 800, "nez");
