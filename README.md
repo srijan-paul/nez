@@ -9,7 +9,7 @@ own emulator.
 > Should also work with Zig <= 0.14.0, but I haven't tested it.
 
 <div style="display: flex; gap: 10px;">
-    <img src="./screens/megaman2_gameplay.webp" alt="pacman home screen" width="320px"/>
+    <img src="./screens/megaman_gameplay.gif" alt="pacman home screen" width="320px"/>
     <img src="./screens/pacman.png" alt="pacman home screen" width="320px"/>
 </div>
 
