@@ -9,8 +9,11 @@ own emulator.
 > Should also work with Zig <= 0.14.0, but I haven't tested it.
 
 <div style="display: flex; gap: 10px;">
+     <video width="320" autoplay loop muted>
+      <source src="./screens/megaman_gameplay.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video> 
     <img src="./screens/pacman.png" alt="pacman home screen" width="300px"/>
-    <img src="./screens/donkey-kong.png" alt="donkey kong gameplay" width="300px"/>
 </div>
 
 ## Usage
