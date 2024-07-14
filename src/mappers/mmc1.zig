@@ -23,9 +23,9 @@ const FlagsControl = packed struct {
     }
 };
 
-/// The iNES format assigns mapper 0 to the NROM board,
-/// which is the most common board type.
-/// This was used by most early NES games.
+/// The iNES format assigns mapper 1 to the MMC1 board.
+/// Used by games like Megaman 2, Robocop 2, Robocop 3, Zelda,
+/// Silius, and many others.
 pub const MMC1 = struct {
     const Self = @This();
 
@@ -51,7 +51,7 @@ pub const MMC1 = struct {
     prg_bank: u5 = 0, // when SR is written via $E000 - $FFFF
 
     prg_rom_bank_count: u5, // # of 16 KB PRG ROM banks in the cart
-    chr_rom_bank_count: u5, // # of 8 KB CHR ROM banks in the cart
+    chr_rom_bank_count: u8, // # of 8 KB CHR ROM banks in the cart
     has_chr_ram: bool, // whether the cart has CHR RAM
 
     /// CPU address space $8000 - $BFFF
@@ -64,23 +64,8 @@ pub const MMC1 = struct {
     /// PPU address space $1000 - $1FFF
     chr_rom_hi: []u8,
 
-    /// Given the PRG ROM bank number set by user,
-    /// returns the actual PRG ROM bank number to use.
-    fn maskChrRomBank(self: *Self, bank_number: u5) u5 {
-        if (bank_number < self.chr_rom_bank_count) return bank_number;
-        // Since the bank registers are 5-bits wide, they can have a value of upto 32.
-        // No cart has that many banks present, so we mask away the high bits
-        // when the bank number is too large.
-        const mask = @call(.always_inline, util.bankingMask, .{self.chr_rom_bank_count});
-        return bank_number & mask;
-    }
-
-    fn writePrgBank(self: *Self, value: u5) void {
-        var bank = value;
-        if (bank >= self.prg_rom_bank_count) {
-            bank = @call(.always_inline, util.bankingMask, .{self.prg_rom_bank_count});
-        }
-        self.prg_bank = bank;
+    inline fn writePrgBank(self: *Self, value: u5) void {
+        self.prg_bank = value & (self.prg_rom_bank_count - 1);
     }
 
     /// Update the memory-maps for PRG and CHR banks based on the current control register.
@@ -88,7 +73,7 @@ pub const MMC1 = struct {
         switch (self.ctrl_register.prg_rom_bank_mode) {
             0, 1 => {
                 // Switch 32KB at $8000, ignoring low bit of bank number.
-                const bank_number = self.maskChrRomBank(self.prg_bank & 0b11110);
+                const bank_number = self.prg_bank & (self.prg_rom_bank_count - 1);
 
                 const bank1_start = @as(u32, bank_number) * 2 * PrgBankSize;
                 const bank1_end = bank1_start + PrgBankSize;
@@ -121,18 +106,22 @@ pub const MMC1 = struct {
         // is that a program can write to CHR RAM whereas CHR ROM is (obviously) Read only.
         if (self.has_chr_ram) return;
 
+        // std.debug.print("is 4kb: {}\n", .{self.ctrl_register.chr_rom_is_4kb});
         if (self.ctrl_register.chr_rom_is_4kb) {
             // Switch two 4kb banks.
-            const bank0: u32 = self.maskChrRomBank(self.chr_bank0);
-            const bank0_start = bank0 * ChrBankSize;
+            const n_4kb_banks: usize = self.chr_rom_bank_count * 2;
+
+            const bank0_index = @as(usize, self.chr_bank0) & (n_4kb_banks - 1);
+            const bank0_start = bank0_index * ChrBankSize;
             self.chr_rom_lo = self.cart.chr_rom[bank0_start .. bank0_start + ChrBankSize];
 
-            const bank1: u32 = self.maskChrRomBank(self.chr_bank1);
-            const bank1_start = bank1 * ChrBankSize;
+            const bank1_index = @as(usize, self.chr_bank1) & (n_4kb_banks - 1);
+            const bank1_start = bank1_index * ChrBankSize;
             self.chr_rom_hi = self.cart.chr_rom[bank1_start .. bank1_start + ChrBankSize];
         } else {
             // Switch 8KB banks at a time.
-            const offset = @as(u32, self.maskChrRomBank(self.chr_bank0)) * 2 * ChrBankSize;
+            const bank_index = self.chr_bank0 & (self.chr_rom_bank_count - 1);
+            const offset = @as(usize, bank_index) * (2 * ChrBankSize);
             self.chr_rom_lo = self.cart.chr_rom[offset .. offset + ChrBankSize];
             self.chr_rom_hi = self.cart.chr_rom[offset + ChrBankSize .. offset + 2 * ChrBankSize];
         }
@@ -147,7 +136,6 @@ pub const MMC1 = struct {
             2 => self.mapper.ppu_mirror_mode = .vertical,
             3 => self.mapper.ppu_mirror_mode = .horizontal,
         }
-        std.debug.print("Mirror mode set to {any}\n", .{self.mapper.ppu_mirror_mode});
     }
 
     /// Write to an internal register.
@@ -156,10 +144,14 @@ pub const MMC1 = struct {
     /// reach the shift register (addr).
     /// Ref: https://www.nesdev.org/wiki/MMC1#Registers
     fn writeRegister(self: *Self, addr: u16, value: u5) void {
+        // if (0xA000 <= addr and addr <= 0xBFFF) {
+        //     std.debug.print("(first CHR bank) {x} <- {x}\n", .{ addr, value });
+        // }
+        //
         switch (addr) {
             0x8000...0x9FFF => self.writeControl(value),
-            0xA000...0xBFFF => self.chr_bank0 = self.maskChrRomBank(value),
-            0xC000...0xDFFF => self.chr_bank1 = self.maskChrRomBank(value),
+            0xA000...0xBFFF => self.chr_bank0 = value,
+            0xC000...0xDFFF => self.chr_bank1 = value,
             0xE000...0xFFFF => self.writePrgBank(value),
             else => std.debug.panic("MMC1: Bad register address", .{}),
         }
@@ -179,14 +171,15 @@ pub const MMC1 = struct {
             return;
         }
 
+        // std.debug.print("SR: {x}, value: {x}\n", .{ self.shift_register, value });
+
         // check if the SR is full when this write is Done.
-        // "full" = LSB is set to 1 of the shift register is set to 1.
+        // "full" = '1' is shifted out of the SR (when its the 5th write to the SR).
         const is_last_write = self.shift_register & 0b00001 != 0;
 
         // Set the MSB of the shift register to the LSB of the value.
-        self.shift_register =
-            (self.shift_register >> 1) |
-            ((@as(u5, @truncate(value & 0b1))) << 4);
+        const ls_bit: u5 = @truncate(value & 0b1);
+        self.shift_register = (self.shift_register >> 1) | (ls_bit << 4);
 
         // When the SR is full, any write to this register will:
         // 1. Copy the contents of SR to an internal register depending on `addr`.
@@ -220,9 +213,9 @@ pub const MMC1 = struct {
         var self = Self{
             .ppu = ppu,
             .cart = cart,
-            .has_chr_ram = cart.header.chr_rom_size == 0,
+            .has_chr_ram = cart.header.chr_rom_count == 0,
             .prg_rom_bank_count = @truncate(cart.header.prg_rom_banks),
-            .chr_rom_bank_count = @truncate(cart.header.chr_rom_size),
+            .chr_rom_bank_count = @truncate(cart.header.chr_rom_count),
             .mapper = Mapper.init(read, write, ppuRead, ppuWrite),
             // these are initialized when `updateBankOffsets` is called below.
             .prg_rom_lo = undefined,
@@ -242,7 +235,10 @@ pub const MMC1 = struct {
         const self: *Self = @fieldParentPtr("mapper", m);
         if (addr < 0x2000) {
             if (self.has_chr_ram) return self.cart.chr_ram[addr];
-            return self.cart.chr_rom[addr];
+            return if (addr < 0x1000)
+                self.chr_rom_lo[addr]
+            else
+                self.chr_rom_hi[addr - 0x1000];
         }
 
         if (addr < 0x3000)

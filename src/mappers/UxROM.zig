@@ -18,8 +18,7 @@ mapper: Mapper,
 // write to the bank select register
 fn setPRGBank(self: *Self, value: u8) void {
     // mask away the high bits of the bank number if out of range.
-    const mask = util.bankingMask(self.prg_rom_bank_count);
-    const bank: u32 = (value & 0b1111) & mask;
+    const bank: u32 = value & (self.prg_rom_bank_count - 1);
     const bank_start = bank * 0x4000;
     const bank_end = bank_start + 0x4000; // each PRG Bank is 16Kb
     self.prg_bank1 = self.cart.prg_rom[bank_start..bank_end];
@@ -83,7 +82,7 @@ pub fn init(cart: *Cart, ppu: *PPU) Self {
         .cart = cart,
         .prg_rom_bank_count = @truncate(cart.header.prg_rom_banks),
         .mapper = Mapper.init(read, write, ppuRead, ppuWrite),
-        .has_chr_ram = cart.header.chr_rom_size == 0,
+        .has_chr_ram = cart.header.chr_rom_count == 0,
     };
 
     self.mapper.ppu_mirror_mode = if (self.cart.header.flags_6.mirroring_is_vertical)

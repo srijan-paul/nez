@@ -73,7 +73,7 @@ pub const Header = packed struct {
 
     NES: Magic = .{}, // "NES" followed by MS-DOS end-of-file (0x1A)
     prg_rom_banks: u8 = 0,
-    chr_rom_size: u8 = 0,
+    chr_rom_count: u8 = 0,
 
     flags_6: Flags6 = .{},
     flags_7: Flags7 = .{},
@@ -168,7 +168,7 @@ pub const Cart = struct {
         std.debug.assert(bytes_read == prg_rom_buf.len);
 
         total_bytes_read += bytes_read;
-        const chr_rom_size = @as(usize, header.chr_rom_size) * 8 * 1024;
+        const chr_rom_size = @as(usize, header.chr_rom_count) * 8 * 1024;
         const chr_rom_buf = try allocator.alloc(u8, chr_rom_size);
 
         bytes_read = try file.read(chr_rom_buf);
@@ -180,7 +180,6 @@ pub const Cart = struct {
         const chr_ram_buf = try allocator.alloc(u8, chr_ram_size);
 
         // I do not support playchoice inst-rom and prom (yet).
-
         return .{
             .header = header,
             .prg_rom = prg_rom_buf,
@@ -204,7 +203,7 @@ test "Cartridge loading: header" {
 
     try T.expectEqual(Header.Magic{ .N = 'N', .E = 'E', .S = 'S', .EOF = 0x1A }, cart.header.NES);
     try T.expectEqual(@as(u8, 2), cart.header.prg_rom_banks);
-    try T.expectEqual(@as(u8, 1), cart.header.chr_rom_size);
+    try T.expectEqual(@as(u8, 1), cart.header.chr_rom_count);
     try T.expectEqual(false, cart.header.flags_6.has_prg_ram);
     try T.expectEqual(MapperKind.nrom, cart.header.getMapper());
 }

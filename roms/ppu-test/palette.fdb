@@ -1,5 +1,0 @@
-BreakPoint: startAddr=00003F01  endAddr=00000000  flags=-PR---  condition=""  desc="" 
-BreakPoint: startAddr=00003F01  endAddr=00000000  flags=-P-W--  condition=""  desc="" 
-BreakPoint: startAddr=00003F02  endAddr=00000000  flags=-P-W--  condition=""  desc="" 
-BreakPoint: startAddr=00003F03  endAddr=00000000  flags=-P-W--  condition=""  desc="" 
-BreakPoint: startAddr=00003F04  endAddr=00000000  flags=-P-W--  condition=""  desc="" 
