@@ -96,21 +96,21 @@ pub const CPU = struct {
     }
 
     /// Read a byte of data from `addr` in memory.
-    pub fn memRead(self: *Self, addr: u16) u8 {
+    pub inline fn memRead(self: *Self, addr: u16) u8 {
         return self.bus.read(addr);
     }
 
     /// Write a byte of data to `addr` in memory.
-    pub fn memWrite(self: *Self, addr: u16, byte: u8) void {
+    pub inline fn memWrite(self: *Self, addr: u16, byte: u8) void {
         self.bus.write(addr, byte);
     }
 
-    fn incPC(self: *Self) void {
+    inline fn incPC(self: *Self) void {
         self.PC = @addWithOverflow(self.PC, @as(u16, 1))[0];
     }
 
     // fetch the next byte to execute.
-    fn nextOp(self: *Self) u8 {
+    inline fn nextOp(self: *Self) u8 {
         const byte = self.memRead(self.PC);
         self.incPC();
         return byte;
@@ -118,7 +118,7 @@ pub const CPU = struct {
 
     /// Fetch the next two bytes from the program counter,
     /// and stitch them together to get a 16 bit address from memory.
-    fn getAddr16(self: *Self) u16 {
+    inline fn getAddr16(self: *Self) u16 {
         const low: u16 = self.nextOp();
         const high: u16 = self.nextOp();
         return low | (high << 8);

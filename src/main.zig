@@ -10,6 +10,7 @@ const PatternTableView = views.PatternTableView;
 const PaletteView = views.PaletteView;
 const PrimaryOAMView = views.PrimaryOAMView;
 const TilePreview = views.TilePreview;
+const CPUView = views.CPUView;
 
 const Allocator = std.mem.Allocator;
 
@@ -34,6 +35,7 @@ const DebugView = struct {
     palette_view: PaletteView,
     tile_preview: TilePreview,
     sprite_view: PrimaryOAMView,
+    cpu_view: CPUView,
     ppu: *PPU,
     emu: *NESConsole,
 
@@ -46,6 +48,7 @@ const DebugView = struct {
         self.palette_view = PaletteView.init(emu.ppu);
         self.tile_preview = TilePreview.init();
         self.sprite_view = PrimaryOAMView.init(allocator, emu.ppu, &self.tile_preview);
+        self.cpu_view = CPUView.init(emu.cpu, emu.ppu, allocator);
 
         return self;
     }
@@ -56,6 +59,7 @@ const DebugView = struct {
         self.palette_view.drawBackgroundPalettes();
         self.palette_view.drawForegroundPalettes();
         self.sprite_view.draw();
+        try self.cpu_view.draw();
     }
 
     pub fn deinit(self: *Self) void {
@@ -99,7 +103,7 @@ pub fn main() !void {
     }
 
     if (isDebug) {
-        rl.InitWindow(800, 800, "nez");
+        rl.InitWindow(1200, 768, "nez");
     } else {
         rl.InitWindow(256 * 2, 240 * 2, "nez");
     }

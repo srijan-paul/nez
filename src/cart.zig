@@ -128,6 +128,7 @@ pub const Cart = struct {
     chr_rom: []u8,
     chr_ram: []u8,
     allocator: Allocator,
+    has_chr_ram: bool = false,
 
     const Self = @This();
 
@@ -186,6 +187,7 @@ pub const Cart = struct {
             .chr_rom = chr_rom_buf,
             .chr_ram = chr_ram_buf,
             .allocator = allocator,
+            .has_chr_ram = chr_ram_size > 0,
         };
     }
 

@@ -5,6 +5,7 @@ const ppu_module = @import("./ppu/ppu.zig");
 const PPU = ppu_module.PPU;
 const PPUPalette = ppu_module.Palette;
 const Allocator = std.mem.Allocator;
+const CPU = @import("./cpu.zig").CPU;
 
 /// The X/Y coordinates of the UI elements.
 pub const UIPositions = struct {
@@ -13,10 +14,10 @@ pub const UIPositions = struct {
     pub const screen_width = PPU.ScreenWidth * 2;
     pub const screen_height = PPU.ScreenHeight * 2;
 
-    pub const bg_palette_y = (screen_width + 16);
+    pub const bg_palette_y = (screen_height + 2);
     pub const foreground_palette_y = (bg_palette_y + 40);
     pub const foreground_palette_x = 0;
-    pub const pattern_table_y = foreground_palette_y + 40;
+    pub const pattern_table_y = foreground_palette_y + 30;
     pub const primary_oam_y = 32;
     pub const primary_oam_scale = 2.5;
     pub const primary_oam_x = screen_width + 64;
@@ -303,9 +304,9 @@ pub const PaletteView = struct {
         var xoff: i32 = 4;
         var yoff: i32 = 4;
 
-        rl.DrawText("Palettes (Background)", x + xoff, y + yoff, 16, rl.WHITE);
+        rl.DrawText("Palettes (Background)", x + xoff, y + yoff, 12, rl.WHITE);
 
-        yoff += 20;
+        yoff += 16;
         for (0..4) |i| {
             self.drawPalette(true, @truncate(i), x + xoff, y + yoff);
             xoff += 70;
@@ -319,9 +320,9 @@ pub const PaletteView = struct {
 
         var xoff: i32 = 4;
         var yoff: i32 = 4;
-        rl.DrawText("Palettes (Sprite)", x + xoff, y + yoff, 16, rl.WHITE);
+        rl.DrawText("Palettes (Sprite)", x + xoff, y + yoff, 12, rl.WHITE);
 
-        yoff += 20;
+        yoff += 16;
         for (0..4) |i| {
             self.drawPalette(false, @truncate(i), x + xoff, y + yoff);
             xoff += 70;
@@ -385,7 +386,6 @@ pub const PatternTableView = struct {
         // convert the 8 bit color IDs to 24 bit colors.
         for (0..self.color_id_buf.len) |i| {
             const color_id = self.color_id_buf[i];
-            // std.debug.print("{}: {}, ", .{ i, color_id });
             const color = PPUPalette[color_id];
             self.pt_buf[i * 3] = color.r;
             self.pt_buf[i * 3 + 1] = color.g;
@@ -402,7 +402,7 @@ pub const PatternTableView = struct {
 
         const pt_text = if (pt_index == 0) "Pattern Table 0" else "Pattern Table 1";
 
-        rl.DrawText(pt_text, @intFromFloat(xoff), UIPositions.pattern_table_y, 16, rl.WHITE);
+        rl.DrawText(pt_text, @intFromFloat(xoff), UIPositions.pattern_table_y, 12, rl.WHITE);
         rl.DrawTexturePro(
             texture,
             srcScale,
@@ -414,5 +414,79 @@ pub const PatternTableView = struct {
             0,
             rl.WHITE,
         );
+    }
+};
+
+const AddrMode = @import("opcode.zig").AddrMode;
+
+pub const CPUView = struct {
+    const Self = @This();
+
+    allocator: Allocator,
+    cpu: *CPU,
+    ppu: *PPU,
+
+    pub fn init(cpu: *CPU, ppu: *PPU, allocator: Allocator) Self {
+        return .{
+            .allocator = allocator,
+            .cpu = cpu,
+            .ppu = ppu,
+        };
+    }
+
+    pub fn draw(self: *const Self) !void {
+        var instr_addr = self.cpu.PC;
+        if (instr_addr > 0) instr_addr -= 1;
+        const instr = self.cpu.currentInstr.*;
+
+        const op = instr[0];
+        const addr_mode = instr[1];
+
+        var s: [:0]u8 = undefined;
+        defer self.allocator.free(s);
+        if (addr_mode == AddrMode.Absolute) {
+            const lo: u16 = self.cpu.memRead(self.cpu.PC);
+            const hi: u16 = self.cpu.memRead(@addWithOverflow(self.cpu.PC, 1)[1]);
+            const a = lo | (hi << 8);
+
+            s = try std.fmt.allocPrintZ(
+                self.allocator,
+                "${x:0>4}: {s} (${x:0>4})",
+                .{ instr_addr, @tagName(op), a },
+            );
+        } else {
+            s = try std.fmt.allocPrintZ(
+                self.allocator,
+                "${x:0>4}: {s} ({s})",
+                .{ instr_addr, @tagName(op), @tagName(addr_mode) },
+            );
+        }
+
+        rl.DrawText(s, 800, 40, 20, rl.WHITE);
+
+        const ppustatus: u8 = @bitCast(self.ppu.ppu_status);
+        const ppu_status_s = try std.fmt.allocPrintZ(
+            self.allocator,
+            "PPU Status: {b:0>8}",
+            .{ppustatus},
+        );
+
+        defer self.allocator.free(ppu_status_s);
+
+        rl.DrawText(ppu_status_s, 800, 60, 20, rl.WHITE);
+
+        const cpu_regs = try std.fmt.allocPrintZ(
+            self.allocator,
+            "A: ${x:0>2} X: ${x:0>2} Y: ${x:0>2} SP: ${x:0>2}",
+            .{
+                self.cpu.A,
+                self.cpu.X,
+                self.cpu.Y,
+                @as(u8, @bitCast(self.cpu.StatusRegister)),
+            },
+        );
+
+        defer self.allocator.free(cpu_regs);
+        rl.DrawText(cpu_regs, 800, 80, 20, rl.WHITE);
     }
 };

@@ -12,6 +12,7 @@ pub const NROM = struct {
     cart: *Cart,
     ppu: *PPU,
     mapper: Mapper,
+    chr: []u8,
 
     const prg_ram = .{ .start = 0x6000, .end = 0x7FFF };
     const prg_rom_bank_1 = .{ .start = 0x8000, .end = 0xBFFF };
@@ -63,15 +64,22 @@ pub const NROM = struct {
     /// Read a byte from the cartridge's CHR ROM.
     fn ppuRead(i_mapper: *Mapper, addr: u16) u8 {
         const self: *Self = @fieldParentPtr("mapper", i_mapper);
-        if (addr < 0x2000) return self.cart.chr_rom[addr];
+        if (addr < 0x2000) return self.chr[addr];
         return self.ppu.readRAM(addr);
     }
 
     /// Write a byte to PPU memory.
     fn ppuWrite(i_mapper: *Mapper, addr: u16, value: u8) void {
         const self: *Self = @fieldParentPtr("mapper", i_mapper);
-        // CHR ROM is read-only.
-        if (addr < 0x2000) return;
+        if (addr < 0x2000) {
+            if (self.cart.has_chr_ram) {
+                self.cart.chr_ram[addr] = value;
+            }
+
+            // CHR ROM is read-only.
+            return;
+        }
+
         self.ppu.writeRAM(addr, value);
     }
 
@@ -81,6 +89,8 @@ pub const NROM = struct {
             .cart = cart,
             .ppu = ppu,
             .mapper = Mapper.init(nromRead, nromWrite, ppuRead, ppuWrite),
+            // If the cart has CHR RAM, use it. Otherwise, use CHR ROM.
+            .chr = if (cart.has_chr_ram) cart.chr_ram else cart.chr_rom,
         };
     }
 };

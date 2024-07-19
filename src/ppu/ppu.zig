@@ -84,13 +84,17 @@ pub const PPU = struct {
     ppu_ctrl: FlagCTRL = .{},
     ppu_mask: FlagMask = .{},
     // NOTE: reading from this register resets the address latch. Read only
-    ppu_status: FlagStatus = .{},
+    ppu_status: FlagStatus = .{}, // $2002
 
     /// Reads from PPUDATA are delayed by one CPU read.
     /// When the CPU reads from PPUDATA, the PPU stores the value
     /// that was read from the PPU bus in this latch,
     /// and returns the value in the latch on the next CPU read.
     ppu_data_latch: u8 = 0,
+
+    /// used to emulate PPU's open bus behavior
+    /// https://www.nesdev.org/wiki/Open_bus_behavior#PPU_open_bus
+    io_bus: u8 = 0,
 
     // OAM registers and memory.
     oam_addr: u8 = 0, // $2003
@@ -272,7 +276,7 @@ pub const PPU = struct {
 
     // flags for the PPUStatus register.
     pub const FlagStatus = packed struct {
-        _ppu_open_bus_unused: u5 = 0,
+        ppu_open_bus: u5 = 0,
         sprite_overflow: bool = false,
         sprite_zero_hit: bool = false,
         in_vblank: bool = false,
@@ -905,10 +909,15 @@ pub const PPU = struct {
     /// Read the PPUSTATUS register.
     /// This will reset the address latch, and clear the vblank flag.
     fn readPPUStatus(self: *Self) u8 {
-        const status: u8 = @bitCast(self.ppu_status);
+        var status = self.ppu_status;
+        const status_u8: u8 = @bitCast(status);
+        // Reading PPUSTATUS will load the value to bits 7-5 of the bus.
+        self.io_bus = (self.io_bus & 0b0001_1111) | (status_u8 & 0b1110_0000);
         self.is_first_write = true;
         self.ppu_status.in_vblank = false;
-        return status;
+
+        status.ppu_open_bus = @truncate(self.io_bus);
+        return @bitCast(status);
     }
 
     /// Write a byte of data to the address pointed to by the PPUADDR register.
@@ -1035,6 +1044,9 @@ pub const PPU = struct {
         std.debug.assert(addr >= 0x2000 and addr < 0x4000);
         const register = addr & 0b111;
 
+        self.io_bus = val;
+        self.ppu_status.ppu_open_bus = @truncate(val);
+
         switch (register) {
             0 => { // PPUCTRL
                 self.ppu_ctrl = @bitCast(val);
@@ -1042,7 +1054,8 @@ pub const PPU = struct {
                 self.t.nametable = self.ppu_ctrl.nametable_number;
             },
             1 => self.ppu_mask = @bitCast(val), // PPUMASK
-            2 => self.ppu_status = @bitCast(val), // PPUSTATUS
+            2 => return, // PPUSTATUS is read-only
+            // 2 => self.ppu_status = @bitCast(val), // PPUSTATUS
             3 => self.oam_addr = val, // OAMADDR
             4 => self.writeOAMDATA(val), // OAMDATA
             5 => self.writePPUScroll(val), // PPUSCROLL
@@ -1058,13 +1071,25 @@ pub const PPU = struct {
         std.debug.assert(addr >= 0x2000 and addr < 0x4000);
         const register = addr & 0b111;
 
-        return switch (register) {
-            2 => self.readPPUStatus(),
-            4 => self.oam[self.oam_addr],
-            7 => self.readPPUDATA(),
+        switch (register) {
+            2 => {
+                return self.readPPUStatus();
+            },
+            4 => {
+                const data = self.oam[self.oam_addr];
+                self.io_bus = data;
+                self.ppu_status.ppu_open_bus = @truncate(data);
+                return data;
+            },
+            7 => {
+                const data = self.readPPUDATA();
+                self.io_bus = data;
+                self.ppu_status.ppu_open_bus = @truncate(data);
+                return data;
+            },
             // reading from any other register is undefined behavior
-            else => 0,
-        };
+            else => return self.io_bus,
+        }
     }
 
     fn concat(allocator: std.mem.Allocator, one: []const u8, two: []const u8) ![]u8 {
