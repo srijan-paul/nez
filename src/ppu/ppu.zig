@@ -105,6 +105,7 @@ pub const PPU = struct {
     /// Secondary OAM stores the sprites for the current scanline (for upto 8 sprites).
     /// Each sprite uses 4 bytes (Y-pos, PT tile-index, attributes, X-pos).
     secondary_oam: [32]u8 = [_]u8{0} ** 32,
+    num_sprites_in_secondary_oam: u8 = 0,
 
     /// Number of sprites currently present in the secondary OAM and sprite latches.
     num_sprites_on_scanline: u8 = 0,
@@ -114,11 +115,8 @@ pub const PPU = struct {
     this_scanline_has_sprite0: bool = false,
 
     // We want the PPU to start on the pre-render scanline.
-    // So the scanline and dot are set to 260, and 240 respectively.
-    // When the first tick() is called, the scanline and dot will be
-    // incremented to 261 and 0 respectively.
-    cycle: u16 = 340,
-    scanline: u16 = 260,
+    cycle: u16 = 0,
+    scanline: u16 = 261,
 
     /// Current position inside the frame buffer.
     /// This depends on the current scanline and cycle.
@@ -229,17 +227,17 @@ pub const PPU = struct {
 
         /// Shift the contents of the register one bit to the right, and
         /// return the bit that was shifted out (this will be the LSB).
-        pub fn shift(self: *ShiftReg16) void {
+        pub inline fn shift(self: *ShiftReg16) void {
             const bits: u16 = @bitCast(self.*);
             self.* = @bitCast(bits >> 1);
         }
 
         /// Return the lowest bit stored in the the register as a u8.
-        pub fn lsb(self: *ShiftReg16) u8 {
+        pub inline fn lsb(self: *ShiftReg16) u8 {
             return self.curr_tile & 0b1;
         }
 
-        pub fn nextTile(self: *ShiftReg16, tile: u8) void {
+        pub inline fn nextTile(self: *ShiftReg16, tile: u8) void {
             self.next_tile = reversed_bits[tile];
         }
     };
@@ -420,11 +418,11 @@ pub const PPU = struct {
         const fine_x: u3 = @truncate(self.fine_x);
         const pt_lo = (self.pattern_table_shifter_lo.curr_tile >> fine_x) & 0b1;
         const pt_hi = (self.pattern_table_shifter_hi.curr_tile >> fine_x) & 0b1;
-        const color_index = pt_hi << 1 | pt_lo;
+        const color_index = (pt_hi << 1) | pt_lo;
 
         const palette_lo = (self.bg_palette_shifter_lo >> fine_x) & 0b1;
         const palette_hi = (self.bg_palette_shifter_hi >> fine_x) & 0b1;
-        const palette_index = palette_hi << 1 | palette_lo;
+        const palette_index = (palette_hi << 1) | palette_lo;
         const palette_base_addr = bg_palette_base_addr + palette_index * palette_size;
         return palette_base_addr + color_index;
     }
@@ -435,11 +433,14 @@ pub const PPU = struct {
         // Visit all the sprite latches and see if any of the sprites in
         // there should be drawn on top of the background.
         // Ref: https://www.nesdev.org/wiki/PPU_sprite_priority
-        for (0..8) |i| {
-            const sprite = self.sprites_on_scanline[i];
+
+        const is_bg_px_transparent = (bg_color_addr - bg_palette_base_addr) % 4 == 0;
+
+        for (0.., self.sprites_on_scanline) |i, sprite| {
             const sprite_x_start = sprite.x;
             const sprite_x_end = @addWithOverflow(sprite_x_start, 8)[0];
             const current_x = self.cycle;
+
             if (current_x >= sprite_x_start and current_x < sprite_x_end) {
                 const px = current_x - sprite_x_start;
                 const color_hi = (sprite.pattern_hi >> @truncate(7 - px)) & 0b1;
@@ -452,21 +453,21 @@ pub const PPU = struct {
                 // 2. The background pixel is transparent (i.e color 0, 4, 8, 12 in the background palette).
                 const is_sprite_px_opaque = color_index % 4 != 0;
                 const is_sprite_fg = !sprite.attr.is_behind_bg;
-                const is_bg_transparent = (bg_color_addr - bg_palette_base_addr) % 4 == 0;
 
                 // Sprite zero hit: https://www.nesdev.org/wiki/PPU_OAM#Sprite_zero_hits
                 // This happens regardless of sprite priority.
                 if (i == 0 and // sprite 0 is always in the first latch
                     i < self.num_sprites_on_scanline and
                     self.this_scanline_has_sprite0 and
-                    is_sprite_px_opaque and !is_bg_transparent)
+                    is_sprite_px_opaque and !is_bg_px_transparent)
                 {
                     self.ppu_status.sprite_zero_hit = true;
                 }
 
-                if (is_sprite_px_opaque and (is_sprite_fg or is_bg_transparent)) {
+                if (is_sprite_px_opaque and (is_sprite_fg or is_bg_px_transparent)) {
                     const palette_index: u16 = sprite.attr.palette;
-                    const sprite_color_addr = fg_palette_base_addr + palette_index * palette_size + color_index;
+                    const sprite_color_addr =
+                        fg_palette_base_addr + (palette_index * palette_size) + color_index;
                     return sprite_color_addr;
                 }
             }
@@ -477,7 +478,7 @@ pub const PPU = struct {
     }
 
     /// Write a pixel to the frame buffer.
-    inline fn renderPixel(self: *Self) void {
+    fn renderPixel(self: *Self) void {
         var color_addr = if (self.ppu_mask.draw_bg)
             self.fetchBGPixel()
         else
@@ -489,6 +490,10 @@ pub const PPU = struct {
 
         const color_id = self.readByte(color_addr);
         const color = Palette[color_id];
+
+        // only render the pixel if we're within the screen bounds.
+        const should_render_px = self.cycle < ScreenWidth and self.scanline < ScreenHeight;
+        if (!should_render_px) return;
 
         std.debug.assert(self.frame_buffer_pos < self.frame_buffer.len);
         self.frame_buffer[self.frame_buffer_pos] = color_id;
@@ -625,35 +630,36 @@ pub const PPU = struct {
 
     /// copy the first 8 sprites on current scanline from primary OAM to secondary OAM.
     /// These sprites are then rendered in the next scanline.
-    fn copySpritesToSecondaryOAM(self: *Self) void {
+    fn copySpritesToSecondaryOAM(self: *Self, screen_y: u16) void {
         self.next_scanline_has_sprite0 = false;
 
         const sprite_height: u16 = if (self.ppu_ctrl.sprite_is_8x16) 16 else 8;
         var num_sprites: u8 = 0;
+
         for (0..64) |sprite_index| {
             // If we've already found 8 sprites, stop copying.
             if (num_sprites == 8) break;
 
             const oam_index = 4 * sprite_index;
-            const y: u16 = self.oam[oam_index];
-            const screen_y = self.scanline;
-
+            const y: u16 = @addWithOverflow(self.oam[oam_index], 1)[0];
+            // Sprites are evaluated for the *next* scanline.
+            // screen-y should be the Y position of the next scanline.
             const is_visible_on_line = y <= screen_y and (y + sprite_height) > screen_y;
             if (!is_visible_on_line) continue;
 
             // Does this scanline contain the 0th sprite from OAM?
             // (will be useful later to calculate the sprite zero hit flag)
             if (sprite_index == 0) self.next_scanline_has_sprite0 = true;
-
             // Since the sprite is visible on this scanline, copy all its bytes to secondary OAM.
             // Later, the pattern table bytes for these sprites will be loaded into the sprite latches.
             for (0..4) |attr_index| {
                 self.secondary_oam[4 * num_sprites + attr_index] = self.oam[oam_index + attr_index];
             }
+
             num_sprites += 1;
         }
 
-        self.num_sprites_on_scanline = num_sprites;
+        self.num_sprites_in_secondary_oam = num_sprites;
     }
 
     /// Sprite evaluation that occurrs on every dot of a visible scanline.
@@ -665,22 +671,24 @@ pub const PPU = struct {
             for (0..32) |i| self.secondary_oam[i] = 0xFF;
         }
 
+        const next_sc = if (self.scanline == 261) 0 else self.scanline + 1;
         // This should happen between cycles 64 and 256, but I do it all at once on dot-64.
-        if (self.cycle == 64) self.copySpritesToSecondaryOAM();
+        if (self.cycle == 64) self.copySpritesToSecondaryOAM(next_sc);
 
         const tall_sprites = self.ppu_ctrl.sprite_is_8x16;
         // Use sprite data from secondary OAM to fill sprites latches.
         // TODO: should I do these in a cycle accurate manner, since we're reading from the pattern table?
         if (self.cycle == 257) {
-            for (0..self.num_sprites_on_scanline) |i| {
+            const num_sprites = self.num_sprites_in_secondary_oam;
+            for (0..num_sprites) |i| {
                 std.debug.assert(i <= 7);
                 const j = i * 4; // each sprite is 4 bytes long.
-                const sprite_y = self.secondary_oam[j];
+                const sprite_y = @addWithOverflow(self.secondary_oam[j], 1)[0];
                 var tile_index = self.secondary_oam[j + 1];
                 const attrs: SpriteAttributes = @bitCast(self.secondary_oam[j + 2]);
                 const sprite_x = self.secondary_oam[j + 3];
 
-                var row: u8 = @truncate(self.scanline - sprite_y);
+                var row: u8 = @truncate(next_sc - sprite_y);
 
                 const is_second_half = row > 7; // for 8x16 sprites
                 if (is_second_half) row -= 8;
@@ -714,24 +722,18 @@ pub const PPU = struct {
                 self.sprites_on_scanline[i] = sprite;
             }
 
-            for (self.num_sprites_on_scanline..8) |i| {
+            // clear the empty sprite latches
+            for (num_sprites..self.sprites_on_scanline.len) |i| {
                 self.sprites_on_scanline[i] = .{};
             }
+
+            self.num_sprites_on_scanline = num_sprites;
         }
     }
 
     /// Execute one tick of a visible scanline (0 to 239 inclusive)
     fn visibleScanline(self: *Self) void {
-        // On the last cycle of the last visible scanline, reset the frame buffer position
-        // so that we begin drawing the next frame from the 0th pixel in the buffer.
-        if ((self.scanline == 239 and self.cycle == 340) or
-            (self.scanline == 0 and self.cycle == 0))
-        {
-            self.frame_buffer_pos = 0;
-        }
-
         const is_prerender_line = self.scanline == 261;
-
         const draw_bg = self.ppu_mask.draw_bg;
 
         // The 0th cycle is idle, nothing happens apart from regular rendering.
@@ -800,30 +802,40 @@ pub const PPU = struct {
 
     /// Set some internal state to prepare for the frame (that is generally done on dot 0),
     /// then skip the 0th dot by setting the cycle to 1.
-    fn skip_cycle_0(self: *Self) void {
+    fn skip_cycle_0(self: *Self) bool {
         // cycle 0 is not skipped if rendering is disabled.
-        if (self.ppu_mask.draw_bg and self.ppu_mask.draw_sprites) return;
+        if (self.ppu_mask.draw_bg and self.ppu_mask.draw_sprites) return false;
         self.this_scanline_has_sprite0 = self.next_scanline_has_sprite0;
         self.next_scanline_has_sprite0 = false;
         self.frame_buffer_pos = 1;
         self.cycle = 1;
+        return true;
     }
 
     /// Excute a single clock cycle of the PPU.
     pub fn tick(self: *PPU) void {
         // increment cycle and scanline.
-        self.cycle += 1;
-        if (self.cycle > 340) {
-            self.cycle = 0;
-            self.scanline += 1;
-            if (self.scanline > 261) self.scanline = 0;
+        var next_cycle = self.cycle + 1;
+        var next_scanline = self.scanline;
+        if (next_cycle > 340) {
+            next_cycle = 0;
+            next_scanline += 1;
+            if (next_scanline > 261) next_scanline = 0;
+        }
+
+        // increment the cycle and scanline counters
+        // after executing this clock cycle.
+        defer {
+            self.cycle = next_cycle;
+            self.scanline = next_scanline;
         }
 
         // On even frames, skip the first cycle of the first scanline.
-
         if (self.cycle == 0 and self.scanline == 0) {
             self.is_even_frame = !self.is_even_frame;
-            if (self.is_even_frame) self.skip_cycle_0();
+            self.frame_buffer_pos = 0; // (also reset the position in the framebuffer)
+            if (self.is_even_frame and self.skip_cycle_0())
+                return;
         }
 
         switch (self.scanline) {
@@ -861,7 +873,7 @@ pub const PPU = struct {
                 // The CPU freely access the PPU contents during this time.
             },
 
-            else => unreachable,
+            else => std.debug.panic("invalid scanline: {d}\n", .{self.scanline}),
         }
     }
 
