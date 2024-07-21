@@ -263,9 +263,13 @@ pub const PPU = struct {
     /// Flags for the PPUMask register.
     pub const FlagMask = packed struct {
         is_grayscale: bool = false,
-        left_bg: bool = false,
-        left_fg: bool = false,
+        /// Should we draw the leftmost 8 pixels of the screen?
+        draw_bg_left: bool = false,
+        /// Should we draw the leftmost 8 pixels of the sprites?
+        draw_sprites_left: bool = false,
+        /// Is bg rendering enabled?
         draw_bg: bool = false,
+        /// Is sprite rendering enabled?
         draw_sprites: bool = false,
         enhance_red: bool = false,
         enhance_green: bool = false,
@@ -434,12 +438,12 @@ pub const PPU = struct {
         // there should be drawn on top of the background.
         // Ref: https://www.nesdev.org/wiki/PPU_sprite_priority
 
+        const current_x = self.cycle;
         const is_bg_px_transparent = (bg_color_addr - bg_palette_base_addr) % 4 == 0;
 
         for (0.., self.sprites_on_scanline) |i, sprite| {
             const sprite_x_start = sprite.x;
             const sprite_x_end = @addWithOverflow(sprite_x_start, 8)[0];
-            const current_x = self.cycle;
 
             if (current_x >= sprite_x_start and current_x < sprite_x_end) {
                 const px = current_x - sprite_x_start;
@@ -461,7 +465,12 @@ pub const PPU = struct {
                     self.this_scanline_has_sprite0 and
                     is_sprite_px_opaque and !is_bg_px_transparent)
                 {
-                    self.ppu_status.sprite_zero_hit = true;
+                    // Edge case: check if rendering is enabled in the left most 8px of the screen.
+                    const left_render_disabled = !(self.ppu_mask.draw_sprites_left and self.ppu_mask.draw_bg_left);
+                    const left_edge_clip = current_x < 8 and left_render_disabled;
+
+                    if (!left_edge_clip)
+                        self.ppu_status.sprite_zero_hit = true;
                 }
 
                 if (is_sprite_px_opaque and (is_sprite_fg or is_bg_px_transparent)) {
