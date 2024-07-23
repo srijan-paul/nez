@@ -66,15 +66,17 @@ pub const Console = struct {
         self.allocator.destroy(self.controller);
     }
 
-    pub fn powerOn(self: *Self) void {
+    pub inline fn powerOn(self: *Self) void {
         self.cpu.powerOn();
     }
 
-    pub fn tick(self: *Self) !void {
+    pub inline fn tick(self: *Self) !void {
         try self.cpu.tick();
-        for (0..3) |_| {
-            self.ppu.tick();
-        }
+
+        // one CPU tick is 3 PPU ticks
+        self.ppu.tick();
+        self.ppu.tick();
+        self.ppu.tick();
     }
 
     // Update the console state.

@@ -437,13 +437,15 @@ pub const PPU = struct {
         // Visit all the sprite latches and see if any of the sprites in
         // there should be drawn on top of the background.
         // Ref: https://www.nesdev.org/wiki/PPU_sprite_priority
-
+        // While doing so, we also compute the sprite 0 hit flag.
         const current_x = self.cycle;
         const is_bg_px_transparent = (bg_color_addr - bg_palette_base_addr) % 4 == 0;
 
+        // std.debug.print("scanline: {d}\n", .{self.scanline});
+
         for (0.., self.sprites_on_scanline) |i, sprite| {
-            const sprite_x_start = sprite.x;
-            const sprite_x_end = @addWithOverflow(sprite_x_start, 8)[0];
+            const sprite_x_start: u16 = sprite.x;
+            const sprite_x_end = sprite_x_start + 8;
 
             if (current_x >= sprite_x_start and current_x < sprite_x_end) {
                 const px = current_x - sprite_x_start;
@@ -461,15 +463,18 @@ pub const PPU = struct {
                 // Sprite zero hit: https://www.nesdev.org/wiki/PPU_OAM#Sprite_zero_hits
                 // This happens regardless of sprite priority.
                 if (i == 0 and // sprite 0 is always in the first latch
-                    i < self.num_sprites_on_scanline and
-                    self.this_scanline_has_sprite0 and
+                    !self.ppu_status.sprite_zero_hit and // Only the first pixel hit is detected
+                    i < self.num_sprites_on_scanline and self.this_scanline_has_sprite0 and
+                    self.cycle != 255 and // sprite 0 hit doesn't happen on the last cycle of any scanline
                     is_sprite_px_opaque and !is_bg_px_transparent)
                 {
                     // Edge case: check if rendering is enabled in the left most 8px of the screen.
                     const left_render_disabled = !(self.ppu_mask.draw_sprites_left and self.ppu_mask.draw_bg_left);
-                    const left_edge_clip = current_x < 8 and left_render_disabled;
+                    const is_left_8px_clipped = current_x < 8 and left_render_disabled;
+                    // "for an obscure reason related to the pixel pipeline" – NES wiki
+                    const is_right_edge_clipped = sprite.x == 255;
 
-                    if (!left_edge_clip)
+                    if (!(is_left_8px_clipped or is_right_edge_clipped))
                         self.ppu_status.sprite_zero_hit = true;
                 }
 
@@ -625,14 +630,14 @@ pub const PPU = struct {
 
     /// Copy the vertical bits from the `t` register into the `v` register.
     /// This is done on the pre-render line (scanline 261) during cycles 280 to 304.
-    fn resetVert(self: *Self) void {
+    inline fn resetVert(self: *Self) void {
         self.vram_addr.coarse_y = self.t.coarse_y;
         self.vram_addr.fine_y = self.t.fine_y;
         self.vram_addr.nametable = (self.vram_addr.nametable & 0b01) | (self.t.nametable & 0b10);
     }
 
     /// Copy the horizontal bits from the `t` register into the `v` register.
-    fn resetHorz(self: *Self) void {
+    inline fn resetHorz(self: *Self) void {
         self.vram_addr.coarse_x = self.t.coarse_x;
         self.vram_addr.nametable = (self.vram_addr.nametable & 0b10) | (self.t.nametable & 0b01);
     }
@@ -887,7 +892,7 @@ pub const PPU = struct {
     }
 
     /// Write a byte to $2005 of CPU address space (PPUSCROLL register).
-    pub fn writePPUScroll(self: *Self, byte: u8) void {
+    pub inline fn writePPUScroll(self: *Self, byte: u8) void {
         if (self.is_first_write) {
             // set the fine and coarse X scroll.
             self.t.coarse_x = @truncate(byte >> 3);
@@ -902,7 +907,7 @@ pub const PPU = struct {
     }
 
     /// Write to the PPUADDR register ($2006 of CPU address space).
-    pub fn writePPUADDR(self: *Self, value: u8) void {
+    pub inline fn writePPUADDR(self: *Self, value: u8) void {
         if (self.is_first_write) {
             // 1. Get the lower 6 bits of the operand byte, and
             // 2. Set the bits 9-14 of the t register.

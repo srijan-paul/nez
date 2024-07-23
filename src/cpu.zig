@@ -220,28 +220,28 @@ pub const CPU = struct {
     }
 
     /// set the Z flag if the lower 8 bits of `value` are all 0.
-    fn setFlagZ(self: *Self, value: u16) void {
+    inline fn setFlagZ(self: *Self, value: u16) void {
         self.StatusRegister.Z = value & 0xFF == 0;
     }
 
     /// set the `N` flag if the MSB of `value` is 1.
-    fn setFlagN(self: *Self, value: u16) void {
+    inline fn setFlagN(self: *Self, value: u16) void {
         self.StatusRegister.N = value & 0b1000_0000 != 0;
     }
 
     // set the Z and N flags based on the lower 8 bits of `value`.
-    fn setZN(self: *Self, value: u16) void {
+    inline fn setZN(self: *Self, value: u16) void {
         self.setFlagZ(value);
         self.setFlagN(value);
     }
 
     /// set the `C` flag if `value` is greater than 0xFF (u8 max).
-    fn setC(self: *Self, value: u16) void {
+    inline fn setC(self: *Self, value: u16) void {
         self.StatusRegister.C = value > std.math.maxInt(u8);
     }
 
     /// Get the address pointed to the by the current stack pointer.
-    fn stackAddr(self: *Self) u16 {
+    inline fn stackAddr(self: *Self) u16 {
         return @addWithOverflow(0x100, @as(u16, self.S))[0];
     }
 
@@ -281,7 +281,7 @@ pub const CPU = struct {
 
     /// Perform the `ROL` instruction, using `byte` as the operand,
     /// but do not write the result back to memory.
-    fn rol(self: *Self, byte: u8) u8 {
+    inline fn rol(self: *Self, byte: u8) u8 {
         const old_carry: u8 = if (self.StatusRegister.C) 1 else 0;
 
         const shlResult = @shlWithOverflow(byte, @as(u8, 1));
@@ -298,7 +298,7 @@ pub const CPU = struct {
 
     /// Perform the `ROR` instruction using `byte` as the operand,
     /// but do not write the result back to memory.
-    fn ror(self: *Self, byte: u8) u8 {
+    inline fn ror(self: *Self, byte: u8) u8 {
         const old_carry: u8 = if (self.StatusRegister.C) 1 else 0;
 
         const old_b0 = byte & 0b0000_0001; // old 0th bit
@@ -315,7 +315,7 @@ pub const CPU = struct {
 
     /// Perform the 'ASL' instruction and set appropriate flags, but do
     /// not write the resulting back to memory.
-    fn asl(self: *Self, byte: u8) u8 {
+    inline fn asl(self: *Self, byte: u8) u8 {
         const res: u16 = @as(u16, byte) << 1;
         self.setZN(res);
         self.setC(res);
@@ -323,7 +323,7 @@ pub const CPU = struct {
     }
 
     /// Perform the `ADC` CPU operation on `arg`.
-    fn adc(self: *Self, arg: u8) void {
+    inline fn adc(self: *Self, arg: u8) void {
         const byte: u16 = arg;
         const carry: u16 = if (self.StatusRegister.C) 1 else 0;
         const sum: u16 = self.A + byte + carry;
@@ -700,11 +700,10 @@ pub const CPU = struct {
         // NMIs cannot be interrupted
         self.StatusRegister.I = true;
 
-        // The NMI handler's address is at 0xFFFA/0xFFFB
+        // The NMI handler routine is located at 0xFFFA/0xFFFB
         const nmi_handler_addr_lo: u16 = self.memRead(0xFFFA);
         const nmi_handler_addr_hi: u16 = self.memRead(0xFFFB);
-        const nmi_handler_addr = (nmi_handler_addr_hi << 8) | nmi_handler_addr_lo;
-        self.PC = nmi_handler_addr;
+        self.PC = (nmi_handler_addr_hi << 8) | nmi_handler_addr_lo;
     }
 
     /// Fetch and decode the next instruction.
@@ -725,8 +724,6 @@ pub const CPU = struct {
         // If there is an NMI waiting to be serviced,
         // handle that first.
         if (self.bus.isNMIPending()) {
-            // store current PC, store current status flags,
-            // point the PC to the NMI handler addr, etc.
             self.triggerNMI();
         }
 

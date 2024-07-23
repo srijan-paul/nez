@@ -323,7 +323,7 @@ pub const BadInstruction: Instruction = .{ Op.Unknown, AddrMode.Invalid, 0 };
 const lookup_table = makeLookupTable();
 
 // Decodes an instruction from its opcode.
-pub fn decodeInstruction(opcode: u8) *const Instruction {
+pub inline fn decodeInstruction(opcode: u8) *const Instruction {
     return &lookup_table[opcode];
 }
 
