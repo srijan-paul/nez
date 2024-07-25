@@ -47,16 +47,14 @@ pub fn read(self: *Self) u8 {
     const is_pressed = self.buttons[self.next_button];
     self.next_button = @addWithOverflow(self.next_button, 1)[0];
 
-    // std.debug.print("button: {any}\n", .{self.buttons});
-
     return @intFromBool(is_pressed);
 }
 
 /// $4016 write
-pub fn write(self: *Self, value: u8) void {
+pub inline fn write(self: *Self, value: u8) void {
     self.input = value;
 }
 
-pub fn setInputs(self: *Self, inputs: ButtonState) void {
+pub inline fn setInputs(self: *Self, inputs: ButtonState) void {
     self.buttons = inputs;
 }

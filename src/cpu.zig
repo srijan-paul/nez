@@ -17,6 +17,16 @@ const NESError = util.NESError;
 
 pub const Register = u8;
 
+/// The kinds of interrupts that can be serviced by the CPU
+pub const InterruptKind = enum {
+    /// Non-maskable interrupt
+    nmi,
+    /// IRQ interrupt
+    irq,
+    /// No interrupt
+    none,
+};
+
 pub const StatusRegister = packed struct {
     // Carry Flag
     C: bool = false,
@@ -25,9 +35,9 @@ pub const StatusRegister = packed struct {
     // Interrupt Disable
     I: bool = false,
     D: bool = false,
+    // B-Flag. Not used by the user.
     B: bool = false,
     // This status flag does nothing, and is always set to 1.
-    // B-Flag. Not used by the user.
     _: bool = true,
     // Overflow Flag
     V: bool = false,
@@ -59,6 +69,11 @@ pub const CPU = struct {
     // each page in the RAM is 256 bytes.
     const PageSize = 256;
 
+    /// The NMI handler's address is located at 0xFFFA/0xFFFB
+    const NmiHandlerAddr = 0xFFFA;
+    /// The IRQ handler's address is located at 0xFFFE/0xFFFF
+    const IrqHandlerAddr = 0xFFFE;
+
     // capacity of the RAM chip attached to the CPU in bytes
     // (called SRAM (S = static), or WRAM(W = work))
     pub const w_ram_size = 0x800;
@@ -86,6 +101,8 @@ pub const CPU = struct {
     StatusRegister: StatusRegister = .{},
 
     bus: *Bus,
+
+    interrupt_pending: InterruptKind = .none,
 
     allocator: Allocator,
 
@@ -340,6 +357,11 @@ pub const CPU = struct {
         const op = instr[0];
         const mode: AddrMode = instr[1];
 
+        if (self.PC == 0xE19B + 1) {
+            // const bus: *bus_module.NESBus = @fieldParentPtr("bus", self.bus);
+            // std.debug.print("Op: {s}, Mode: {s} (PPU scanline={d})\n", .{ @tagName(op), @tagName(mode), bus.ppu.scanline });
+        }
+
         switch (op) {
             Op.ADC => self.adc(self.operand(instr)),
 
@@ -392,23 +414,20 @@ pub const CPU = struct {
                 // is a padding byte that is ignored by the CPU.
                 // Ref: https://www.nesdev.org/the%20%27B%27%20flag%20&%20BRK%20instruction.txt
                 self.incPC();
-                self.push(@truncate(self.PC >> 8)); // high byte
-                self.push(@truncate(self.PC)); // low byte
 
-                // There is no actual "B" flag in a physical 6502 CPU.
-                // It is merely a bit that exists in the *flag byte*
-                // that is pushed onto the stack.
-                // When flags are restored (following an RTI), the
-                // B bit is discarded.
+                self.push(@truncate(self.PC >> 8)); // push PCHigh
+                self.push(@truncate(self.PC)); // push PCLow
+
+                // There is no actual "B" flag in the hardware.
+                // Its just set before pushing Status register to the stack
                 var flags = self.StatusRegister;
                 flags.B = true;
-                self.push(@bitCast(flags));
+                self.push(@bitCast(flags)); // push status
 
-                const lo: u16 = self.memRead(0xFFFE);
-                const hi: u16 = self.memRead(0xFFFF);
-                self.PC = (hi << 8) | lo;
+                const handler_lo: u16 = self.memRead(0xFFFE);
+                const handler_hi: u16 = self.memRead(0xFFFF);
+                self.PC = (handler_hi << 8) | handler_lo;
                 self.StatusRegister.I = true;
-                self.StatusRegister._ = true;
             },
 
             Op.CLC => self.StatusRegister.C = false,
@@ -690,20 +709,19 @@ pub const CPU = struct {
         }
     }
 
-    /// Trigger a non-maskable interrupt.
-    fn triggerNMI(self: *Self) void {
-        // push the PC high byte, PC low byte, and status register on to the stack.
-        self.push(@truncate(self.PC >> 8)); // high byte
-        self.push(@truncate(self.PC)); // low byte
-        self.push(@bitCast(self.StatusRegister)); // status
+    /// Service an interrupt request
+    fn triggerInterrupt(self: *Self, handler_addr: u16) void {
+        self.push(@truncate(self.PC >> 8)); // push PCHigh
+        self.push(@truncate(self.PC)); // push PCLow
 
-        // NMIs cannot be interrupted
+        var flags = self.StatusRegister;
+        flags.B = false;
+        self.push(@bitCast(flags)); // push status
+
+        const handler_lo: u16 = self.memRead(handler_addr);
+        const handler_hi: u16 = self.memRead(handler_addr + 1);
+        self.PC = (handler_hi << 8) | handler_lo;
         self.StatusRegister.I = true;
-
-        // The NMI handler routine is located at 0xFFFA/0xFFFB
-        const nmi_handler_addr_lo: u16 = self.memRead(0xFFFA);
-        const nmi_handler_addr_hi: u16 = self.memRead(0xFFFB);
-        self.PC = (nmi_handler_addr_hi << 8) | nmi_handler_addr_lo;
     }
 
     /// Fetch and decode the next instruction.
@@ -723,9 +741,12 @@ pub const CPU = struct {
 
         // If there is an NMI waiting to be serviced,
         // handle that first.
-        if (self.bus.isNMIPending()) {
-            self.triggerNMI();
+        switch (self.interrupt_pending) {
+            .nmi => self.triggerInterrupt(NmiHandlerAddr), // 0xfffa/0xfffb
+            .irq => self.triggerInterrupt(IrqHandlerAddr), // 0xfffe/0xffff
+            else => {},
         }
+        self.interrupt_pending = .none;
 
         self.currentInstr = self.nextInstruction();
         // -1 because of CPU cycle used to decode the instruction.
@@ -734,7 +755,7 @@ pub const CPU = struct {
 
     // Run the CPU, assuming that the program counter has been
     // set to the correct location, and an instruction has been fetched.
-    fn run(self: *Self) !void {
+    inline fn run(self: *Self) !void {
         while (true) {
             try self.tick();
         }

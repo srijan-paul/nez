@@ -1,7 +1,10 @@
 const std = @import("std");
 const palette = @import("./ppu-colors.zig");
 const Mapper = @import("../mappers/mapper.zig").Mapper;
-const CPU = @import("../cpu.zig").CPU;
+
+const cpu_module = @import("../cpu.zig");
+const CPU = cpu_module.CPU;
+const InterruptKind = cpu_module.InterruptKind;
 
 pub const Color = palette.Color;
 pub const Palette = palette.Palette;
@@ -66,10 +69,6 @@ pub const PPU = struct {
 
     /// A reference to the CPU connected to this PPU device.
     cpu: *CPU,
-
-    /// When `true`, it means the PPU has generated an NMI interrupt,
-    /// and the CPU needs to handle it.
-    is_nmi_pending: bool = false,
 
     /// A flag that tracks whether the current frame number is odd or even.
     is_even_frame: bool = false,
@@ -309,7 +308,7 @@ pub const PPU = struct {
     /// `pt_number`: 0 if we're fetching from the PT at $0000, 1 if we're using the one at $1000
     ///
     /// `row`: The row of the tile to fetch (0-7)
-    fn fetchFromPatternTable(self: *Self, tile: u16, is_low_plane: bool, pt_number: u1, row: u8) u8 {
+    inline fn fetchFromPatternTable(self: *Self, tile: u16, is_low_plane: bool, pt_number: u1, row: u8) u8 {
         std.debug.assert(row < 8);
         const pt_addr = (@as(u16, pt_number) * 0x1000) + (tile * 16) + row;
         return if (is_low_plane) self.readByte(pt_addr) else self.readByte(pt_addr + 8);
@@ -321,7 +320,7 @@ pub const PPU = struct {
     /// `addr`: Index of the tile to fetch from within the pattern table (0-256)
     ///
     /// `is_low_plane`: `true` if we're fetching a byte from the low-bitplane of the tile.
-    fn fetchPatternTableBG(self: *Self, addr: u16, is_low_plane: bool) u8 {
+    inline fn fetchPatternTableBG(self: *Self, addr: u16, is_low_plane: bool) u8 {
         const pt_number: u1 = if (self.ppu_ctrl.pattern_background) 1 else 0;
         return self.fetchFromPatternTable(addr, is_low_plane, pt_number, self.vram_addr.fine_y);
     }
@@ -332,7 +331,7 @@ pub const PPU = struct {
     /// `addr`: Index of the tile to fetch from within the pattern table (0-256)
     ///
     /// `is_low_plane`: `true` if we're fetching a byte from the low-bitplane of the tile.
-    fn fetchSpritePattern(self: *Self, addr: u16, is_low_plane: bool, row: u8) u8 {
+    inline fn fetchSpritePattern(self: *Self, addr: u16, is_low_plane: bool, row: u8) u8 {
         const pt_number: u1 = if (self.ppu_ctrl.pattern_sprite) 1 else 0;
         return self.fetchFromPatternTable(addr, is_low_plane, pt_number, row);
     }
@@ -440,6 +439,10 @@ pub const PPU = struct {
         // While doing so, we also compute the sprite 0 hit flag.
         const current_x = self.cycle;
         const is_bg_px_transparent = (bg_color_addr - bg_palette_base_addr) % 4 == 0;
+
+        if (self.scanline > 189 and self.scanline != 261) {
+            // std.debug.panic("Wtf\n", .{});
+        }
 
         // std.debug.print("scanline: {d}\n", .{self.scanline});
 
@@ -858,7 +861,6 @@ pub const PPU = struct {
                 if (self.cycle == 1) {
                     // clear the vblank flag.
                     self.ppu_status.in_vblank = false;
-                    self.is_nmi_pending = false;
                 }
 
                 // Even on the pre-render scanline, the PPU
@@ -876,15 +878,14 @@ pub const PPU = struct {
                     // set the vblank flag.
                     self.ppu_status.in_vblank = true;
                     if (self.ppu_ctrl.generate_nmi) {
-                        self.is_nmi_pending = true;
+                        self.cpu.interrupt_pending = InterruptKind.nmi;
                     }
                 }
             },
 
             242...260 => {
-                // Idle scanlines. Nothing happens.
-                // Also known as the "VBLANK" phase.
-                // The CPU freely access the PPU contents during this time.
+                // Idle scanlines. Nothing happens. Also known as the "VBLANK" phase.
+                // The CPU freely use the PPU registers during this time.
             },
 
             else => std.debug.panic("invalid scanline: {d}\n", .{self.scanline}),
@@ -1088,6 +1089,10 @@ pub const PPU = struct {
             6 => self.writePPUADDR(val), // PPUADDR
             7 => self.writePPUDATA(val), // PPUDATA
             else => unreachable,
+        }
+
+        if (register == 1 and !self.ppu_mask.draw_sprites and self.scanline == 187) {
+            std.debug.print("PPUMASK disabled when cpu.PC = ${x:<4}\n", .{self.cpu.PC});
         }
     }
 
