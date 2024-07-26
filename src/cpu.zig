@@ -357,11 +357,6 @@ pub const CPU = struct {
         const op = instr[0];
         const mode: AddrMode = instr[1];
 
-        if (self.PC == 0xE19B + 1) {
-            // const bus: *bus_module.NESBus = @fieldParentPtr("bus", self.bus);
-            // std.debug.print("Op: {s}, Mode: {s} (PPU scanline={d})\n", .{ @tagName(op), @tagName(mode), bus.ppu.scanline });
-        }
-
         switch (op) {
             Op.ADC => self.adc(self.operand(instr)),
 
@@ -709,23 +704,25 @@ pub const CPU = struct {
         }
     }
 
-    /// Service an interrupt request
+    /// Service an interrupt request.
+    /// `handler_addr`: Memory address where the address of the interrupt handler is stored.
     fn triggerInterrupt(self: *Self, handler_addr: u16) void {
         self.push(@truncate(self.PC >> 8)); // push PCHigh
         self.push(@truncate(self.PC)); // push PCLow
 
         var flags = self.StatusRegister;
-        flags.B = false;
+        flags.B = false; // B is clear when status register is pushed by an interrupt
         self.push(@bitCast(flags)); // push status
 
         const handler_lo: u16 = self.memRead(handler_addr);
         const handler_hi: u16 = self.memRead(handler_addr + 1);
         self.PC = (handler_hi << 8) | handler_lo;
         self.StatusRegister.I = true;
+        self.cycles_to_wait += 7;
     }
 
     /// Fetch and decode the next instruction.
-    pub fn nextInstruction(self: *Self) *const Instruction {
+    pub inline fn nextInstruction(self: *Self) *const Instruction {
         const op = self.nextOp();
         return opcode.decodeInstruction(op);
     }
@@ -739,18 +736,17 @@ pub const CPU = struct {
 
         try self.exec(self.currentInstr);
 
-        // If there is an NMI waiting to be serviced,
-        // handle that first.
+        // If there is an interrupt waiting to be serviced, handle that
         switch (self.interrupt_pending) {
             .nmi => self.triggerInterrupt(NmiHandlerAddr), // 0xfffa/0xfffb
             .irq => self.triggerInterrupt(IrqHandlerAddr), // 0xfffe/0xffff
-            else => {},
+            .none => {},
         }
         self.interrupt_pending = .none;
 
         self.currentInstr = self.nextInstruction();
         // -1 because of CPU cycle used to decode the instruction.
-        self.cycles_to_wait = self.currentInstr[2] - 1;
+        self.cycles_to_wait += self.currentInstr[2] - 1;
     }
 
     // Run the CPU, assuming that the program counter has been

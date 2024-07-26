@@ -440,12 +440,6 @@ pub const PPU = struct {
         const current_x = self.cycle;
         const is_bg_px_transparent = (bg_color_addr - bg_palette_base_addr) % 4 == 0;
 
-        if (self.scanline > 189 and self.scanline != 261) {
-            // std.debug.panic("Wtf\n", .{});
-        }
-
-        // std.debug.print("scanline: {d}\n", .{self.scanline});
-
         for (0.., self.sprites_on_scanline) |i, sprite| {
             const sprite_x_start: u16 = sprite.x;
             const sprite_x_end = sprite_x_start + 8;
@@ -469,6 +463,7 @@ pub const PPU = struct {
                     !self.ppu_status.sprite_zero_hit and // Only the first pixel hit is detected
                     i < self.num_sprites_on_scanline and self.this_scanline_has_sprite0 and
                     self.cycle != 255 and // sprite 0 hit doesn't happen on the last cycle of any scanline
+                    sprite.y != 0 and // sprite 0 hit doesn't happen when Y=0 (a.k.a when user writes spriteY=255)
                     is_sprite_px_opaque and !is_bg_px_transparent)
                 {
                     // Edge case: check if rendering is enabled in the left most 8px of the screen.
@@ -476,7 +471,6 @@ pub const PPU = struct {
                     const is_left_8px_clipped = current_x < 8 and left_render_disabled;
                     // "for an obscure reason related to the pixel pipeline" – NES wiki
                     const is_right_edge_clipped = sprite.x == 255;
-
                     if (!(is_left_8px_clipped or is_right_edge_clipped))
                         self.ppu_status.sprite_zero_hit = true;
                 }
@@ -1089,10 +1083,6 @@ pub const PPU = struct {
             6 => self.writePPUADDR(val), // PPUADDR
             7 => self.writePPUDATA(val), // PPUDATA
             else => unreachable,
-        }
-
-        if (register == 1 and !self.ppu_mask.draw_sprites and self.scanline == 187) {
-            std.debug.print("PPUMASK disabled when cpu.PC = ${x:<4}\n", .{self.cpu.PC});
         }
     }
 
