@@ -5,6 +5,7 @@ const Cart = @import("cart.zig").Cart;
 const rl = @import("raylib");
 const PPU = @import("./ppu/ppu.zig").PPU;
 const Gamepad = @import("gamepad.zig");
+const APU = @import("./apu/apu.zig");
 
 const Bus = bus_mod.Bus;
 const NESBus = bus_mod.NESBus;
@@ -23,6 +24,7 @@ pub const Console = struct {
     cart: *Cart,
     cpu: *CPU,
     ppu: *PPU,
+    apu: *APU,
     mainBus: *NESBus,
     controller: *Gamepad,
     is_paused: bool = false,
@@ -32,17 +34,18 @@ pub const Console = struct {
         const cart = try allocator.create(Cart);
         cart.* = try Cart.loadFromFile(allocator, file_path);
 
+        const cpu = try allocator.create(CPU);
+        const apu = try allocator.create(APU);
         const ppu = try allocator.create(PPU);
 
         const gamepad = try allocator.create(Gamepad);
         gamepad.* = Gamepad{};
 
         var mainBus = try allocator.create(NESBus);
-        mainBus.* = try NESBus.init(allocator, cart, ppu, gamepad);
+        mainBus.* = try NESBus.init(allocator, cart, apu, ppu, gamepad);
 
-        const cpu = try allocator.create(CPU);
         cpu.* = CPU.init(allocator, &mainBus.bus);
-
+        apu.* = APU.init(cpu);
         ppu.* = PPU.init(cpu, mainBus.mapper);
 
         return .{
@@ -50,6 +53,7 @@ pub const Console = struct {
             .cart = cart,
             .cpu = cpu,
             .ppu = ppu,
+            .apu = apu,
             .mainBus = mainBus,
             .controller = gamepad,
         };
@@ -62,6 +66,7 @@ pub const Console = struct {
         self.allocator.destroy(self.cart);
         self.allocator.destroy(self.cpu);
         self.allocator.destroy(self.ppu);
+        self.allocator.destroy(self.apu);
         self.allocator.destroy(self.mainBus);
         self.allocator.destroy(self.controller);
     }
@@ -72,6 +77,7 @@ pub const Console = struct {
 
     pub inline fn tick(self: *Self) !void {
         try self.cpu.tick();
+        self.apu.tickByCpuClock();
 
         // one CPU tick is 3 PPU ticks
         self.ppu.tick();

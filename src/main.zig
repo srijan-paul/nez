@@ -123,6 +123,25 @@ pub fn main() !void {
     var screen = views.Screen.init(emu.ppu, allocator);
     defer screen.deinit();
 
+    rl.InitAudioDevice();
+    defer rl.CloseAudioDevice();
+    rl.SetAudioStreamBufferSizeDefault(1024);
+
+    var audio_sample: [1024]i16 = undefined;
+    for (0..audio_sample.len) |i| {
+        if (i % 32 <= 16) {
+            audio_sample[i] = 1;
+        } else {
+            audio_sample[i] = 0;
+        }
+    }
+
+    const audio_stream = rl.LoadAudioStream(44100, 8, 1);
+    rl.UpdateAudioStream(audio_stream, &audio_sample, audio_sample.len);
+    defer rl.UnloadAudioStream(audio_stream);
+
+    rl.PlayAudioStream(audio_stream);
+
     while (!rl.WindowShouldClose()) {
         const now: u64 = @intCast(std.time.milliTimestamp());
         const dt: u64 = now - then;
@@ -138,9 +157,12 @@ pub fn main() !void {
         }
 
         try screen.draw();
-        if (isDebug) {
-            try debug_view.draw();
+        if (isDebug) try debug_view.draw();
+
+        if (rl.IsAudioStreamProcessed(audio_stream)) {
+            rl.UpdateAudioStream(audio_stream, &audio_sample, audio_sample.len);
         }
+
         rl.ClearBackground(rl.BLACK);
     }
 }

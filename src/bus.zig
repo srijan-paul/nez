@@ -10,6 +10,7 @@ const PPU = @import("./ppu/ppu.zig").PPU;
 const MapperKind = mapper_mod.MapperKind;
 const Mapper = mapper_mod.Mapper;
 const Allocator = std.mem.Allocator;
+const APU = @import("./apu/apu.zig");
 
 pub const Bus = struct {
     const Self = @This();
@@ -57,6 +58,7 @@ pub const NESBus = struct {
     const w_ram_size = 0x800;
     bus: Bus,
     mapper: *Mapper,
+    apu: *APU,
     ppu: *PPU,
     cart: *Cart,
     allocator: Allocator,
@@ -81,20 +83,41 @@ pub const NESBus = struct {
     fn busWrite(i_bus: *Bus, addr: u16, val: u8) void {
         var self: *Self = @fieldParentPtr("bus", i_bus);
         switch (addr) {
+            // CPU RAM
             0...0x1FFF => self.ram[addr % w_ram_size] = val,
-            0x2000...0x3FFF => self.ppu.writeRegister(addr, val),
-            0x4000...0x4017 => {
-                if (addr == 0x4014) {
-                    self.ppu.writeOAMDMA(val);
-                    return;
-                }
 
-                if (addr == 0x4016) {
-                    self.controller.write(val);
-                    return;
-                }
-                // TODO: APU.
-            },
+            // PPU Registers
+            0x2000...0x3FFF => self.ppu.writeRegister(addr, val),
+
+            // APU Pulse Channel #1
+            0x4000 => self.apu.pulse_1.writeControlReg(@bitCast(val)),
+            0x4001 => self.apu.pulse_1.sweep.config = (@bitCast(val)),
+            0x4002 => self.apu.pulse_1.writeTimerLo(val),
+            0x4003 => self.apu.pulse_1.writeTimerHi(val),
+
+            // APU Pulse Channel #2
+            0x4004 => self.apu.pulse_2.writeControlReg(@bitCast(val)),
+            0x4005 => self.apu.pulse_2.sweep.config = (@bitCast(val)),
+            0x4006 => self.apu.pulse_2.writeTimerLo(val),
+            0x4007 => self.apu.pulse_2.writeTimerHi(val),
+
+            // TODO: triangle, noise, and DMC channels.
+            0x4008 => {},
+            0x4009 => {},
+            0x400A => {},
+            0x400B => {},
+            0x400C => {},
+            0x400D => {},
+            0x400E => {},
+            0x400F => {},
+            0x4010 => {},
+            0x4011 => {},
+            0x4012 => {},
+            0x4013 => {},
+            0x4014 => self.ppu.writeOAMDMA(val),
+            0x4015 => {},
+            0x4016 => self.controller.write(val),
+            0x4017 => {},
             0x4018...0x401F => {}, // TODO
             else => self.mapper.write(addr, val),
         }
@@ -126,11 +149,12 @@ pub const NESBus = struct {
 
     /// Create a new Bus.
     /// Both `cart` and `ppu` are non-owning pointers.
-    pub fn init(allocator: Allocator, cart: *Cart, ppu: *PPU, controller: *Gamepad) !Self {
+    pub fn init(allocator: Allocator, cart: *Cart, apu: *APU, ppu: *PPU, controller: *Gamepad) !Self {
         return .{
             .allocator = allocator,
             .cart = cart,
             .ppu = ppu,
+            .apu = apu,
             .bus = .{
                 .readFn = busRead,
                 .writeFn = busWrite,
