@@ -472,6 +472,7 @@ fn mixVolume(pulse1: f32, pulse2: f32) i16 {
     const mixer_out: f32 = pulse_out + tnd_out; // between 0.0 to 1.0
 
     // scale to 16-bit
-    const amplitude = (mixer_out - 0.5) * 0x2fff;
-    return @intFromFloat(amplitude);
+    const amplitude: f32 = (mixer_out * 2 - 1) * 0x2fff;
+    const out: i32 = @intFromFloat(amplitude);
+    return @truncate(out);
 }

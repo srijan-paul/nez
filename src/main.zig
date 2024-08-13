@@ -88,8 +88,7 @@ fn rlAudioInputCallback(buffer_: ?*anyopaque, frames: c_uint) callconv(.C) void 
             }
             break;
         } else {
-            buf[i] = queue.pop() catch
-                std.debug.panic("popping from empty queue!", .{});
+            buf[i] = queue.pop() catch unreachable;
         }
     }
 }
@@ -156,7 +155,7 @@ pub fn main() !void {
 
     var audio_sample: [1024]i16 = undefined;
 
-    const audio_stream = rl.LoadAudioStream(44100, 8, 1);
+    const audio_stream = rl.LoadAudioStream(44100, 16, 1);
     rl.UpdateAudioStream(audio_stream, &audio_sample, audio_sample.len);
     defer rl.UnloadAudioStream(audio_stream);
     rl.SetAudioStreamCallback(audio_stream, rlAudioInputCallback);

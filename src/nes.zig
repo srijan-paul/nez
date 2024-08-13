@@ -35,6 +35,8 @@ pub const Console = struct {
     apu_output_buffer: [1024]i16 = [_]i16{0} ** 1024,
     apu_sample_clock: usize = 0,
 
+    phase: usize = 0,
+
     /// Initialize an NES console from a ROM file.
     pub fn fromROMFile(allocator: Allocator, file_path: [*:0]const u8) !Self {
         const cart = try allocator.create(Cart);
@@ -91,8 +93,7 @@ pub const Console = struct {
         self.apu_sample_clock += 44100;
         if (self.apu_sample_clock >= 1789773) {
             self.apu_sample_clock -= 1789773;
-            if (self.apu.out_volume != 0)
-                try self.audio_sample_queue.push(self.apu.out_volume);
+            try self.audio_sample_queue.push(self.apu.out_volume);
         }
 
         // one CPU tick is 3 PPU ticks
