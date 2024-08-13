@@ -5,6 +5,7 @@ const PPU = @import("./ppu/ppu.zig").PPU;
 const PPUPalette = @import("./ppu/ppu.zig").Palette;
 const NESConsole = @import("./nes.zig").Console;
 const Gamepad = @import("./gamepad.zig");
+const Queue = @import("util.zig").Queue;
 
 const PatternTableView = views.PatternTableView;
 const PaletteView = views.PaletteView;
@@ -40,6 +41,7 @@ const DebugView = struct {
     emu: *NESConsole,
 
     pub fn init(allocator: Allocator, emu: *NESConsole) !Self {
+        // TODO: refactor
         var self: Self = undefined;
         self.allocator = allocator;
 
@@ -71,8 +73,31 @@ const DebugView = struct {
 
 const debugFlag = "--debug";
 
+var apu_samples_queue: ?*Queue(i16) = null;
+
+fn rlAudioInputCallback(buffer_: ?*anyopaque, frames: c_uint) callconv(.C) void {
+    const buffer = buffer_ orelse return;
+    const buf: [*]i16 = @alignCast(@ptrCast(buffer));
+
+    const queue = apu_samples_queue orelse return;
+
+    for (0..frames) |i| {
+        if (queue.isEmpty()) {
+            for (i..frames) |j| {
+                buf[j] = 0;
+            }
+            break;
+        } else {
+            buf[i] = queue.pop() catch
+                std.debug.panic("popping from empty queue!", .{});
+        }
+    }
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+
     const allocator = gpa.allocator();
 
     var args = try std.process.argsWithAllocator(allocator);
@@ -114,6 +139,8 @@ pub fn main() !void {
     var emu = try NESConsole.fromROMFile(allocator, romPath);
     defer emu.deinit();
 
+    apu_samples_queue = &emu.audio_sample_queue;
+
     var debug_view = try DebugView.init(allocator, &emu);
     defer debug_view.deinit();
     emu.powerOn();
@@ -128,17 +155,11 @@ pub fn main() !void {
     rl.SetAudioStreamBufferSizeDefault(1024);
 
     var audio_sample: [1024]i16 = undefined;
-    for (0..audio_sample.len) |i| {
-        if (i % 32 <= 16) {
-            audio_sample[i] = 1;
-        } else {
-            audio_sample[i] = 0;
-        }
-    }
 
     const audio_stream = rl.LoadAudioStream(44100, 8, 1);
     rl.UpdateAudioStream(audio_stream, &audio_sample, audio_sample.len);
     defer rl.UnloadAudioStream(audio_stream);
+    rl.SetAudioStreamCallback(audio_stream, rlAudioInputCallback);
 
     rl.PlayAudioStream(audio_stream);
 
@@ -152,16 +173,13 @@ pub fn main() !void {
 
         _ = try emu.update(dt);
         if (!emu.is_paused) readGamepad(emu.controller);
+
         if (rl.IsKeyPressed(rl.KEY_SPACE)) {
             emu.is_paused = !emu.is_paused;
         }
 
         try screen.draw();
         if (isDebug) try debug_view.draw();
-
-        if (rl.IsAudioStreamProcessed(audio_stream)) {
-            rl.UpdateAudioStream(audio_stream, &audio_sample, audio_sample.len);
-        }
 
         rl.ClearBackground(rl.BLACK);
     }

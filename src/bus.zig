@@ -117,7 +117,7 @@ pub const NESBus = struct {
             0x4014 => self.ppu.writeOAMDMA(val),
             0x4015 => {},
             0x4016 => self.controller.write(val),
-            0x4017 => {},
+            0x4017 => self.apu.writeFrameCounter(val),
             0x4018...0x401F => {}, // TODO
             else => self.mapper.write(addr, val),
         }
