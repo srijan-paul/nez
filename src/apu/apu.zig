@@ -291,9 +291,8 @@ const PulseGenerator = struct {
         const lc_muted = self.length_counter.current_value == 0;
         const sweep_muted = self.sweep.isMuted();
 
-        // Are any of the sub-components muting the output?
+        // Check if any of the sub-components are muting the output
         if (lc_muted or sweep_muted or sequencer_muted) return 0;
-        // std.debug.print("pulse out: {}\n", .{self.envelope.output_volume});
         return self.envelope.output_volume;
     }
 
@@ -304,14 +303,10 @@ const PulseGenerator = struct {
 };
 
 /// Mapped to $4017 in CPU address space.
-const FrameCounterCtrl = packed struct {
+const FrameCounterCtrl = packed struct(u8) {
     __unused: u6 = undefined,
     interrupt_inhibit: bool = false,
     is_5_step_sequence: bool = false,
-
-    comptime {
-        std.debug.assert(@bitSizeOf(FrameCounterCtrl) == 8);
-    }
 };
 
 /// A divider that generates a clock pulse every quarter frame
@@ -387,21 +382,24 @@ fn tickFrameCounter(self: *Self) void {
     const ticked = self.frame_counter.tickByApuClock();
     if (!ticked) return;
 
+    // TODO: frame interrupt flag.
     if (self.frame_counter.mode == .four_step) {
         switch (self.frame_counter.current_step) {
             0 => {
                 self.tickEnvelopes();
             },
             1 => {
+                self.tickEnvelopes();
                 self.tickLengthCounters();
                 self.tickSweepUnits();
             },
-            // TODO: frame interrupt flag.
-            2 => {},
+            2 => {
+                self.tickEnvelopes();
+            },
             3 => {
+                self.tickEnvelopes();
                 self.tickLengthCounters();
                 self.tickSweepUnits();
-                self.tickEnvelopes();
             },
             else => std.debug.panic("Invalid step count for 4 step mode", .{}),
         }
@@ -426,7 +424,7 @@ fn tickFrameCounter(self: *Self) void {
             self.tickLengthCounters();
             self.tickSweepUnits();
         },
-        else => std.debug.panic("Invalid step count for 4 step mode", .{}),
+        else => std.debug.panic("Invalid step count for 5 step mode", .{}),
     }
 }
 
@@ -461,18 +459,25 @@ pub fn tickByCpuClock(self: *Self) void {
     self.is_apu_tick = !self.is_apu_tick;
 }
 
+var mixer_max: f32 = 0;
 /// TODO: finish and document this function.
 fn mixVolume(pulse1: f32, pulse2: f32) i16 {
     var pulse_out = (pulse1 + pulse2);
     if (pulse_out == 0) return 0;
-    pulse_out *= 0.00752;
+
+    pulse_out = 95.88 / (8128.0 / pulse_out + 100.0);
 
     // TODO: change this when ohen other channels are emulated.
     const tnd_out: f32 = 0;
     const mixer_out: f32 = pulse_out + tnd_out; // between 0.0 to 1.0
 
+    if (mixer_out > mixer_max) {
+        mixer_max = mixer_out;
+        std.debug.print("mixer out: {d} (pulse: {d})\n", .{ mixer_out, pulse1 + pulse2 });
+    }
+
     // scale to 16-bit
-    const amplitude: f32 = (mixer_out * 2 - 1) * 0x2fff;
+    const amplitude: f32 = (mixer_out - 0.5) * 0x3fff;
     const out: i32 = @intFromFloat(amplitude);
     return @truncate(out);
 }
