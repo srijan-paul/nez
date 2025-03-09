@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) !void {
 
     const exe = b.addExecutable(.{
         .name = "nez",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -16,9 +16,9 @@ pub fn build(b: *std.Build) !void {
         if (b.sysroot == null) {
             @panic(" Pass --sysroot <path/to/macOS/SDK>");
         }
-        exe.addSystemIncludePath(.{ .path = b.pathJoin(&.{ b.sysroot.?, "/usr/include" }) });
-        exe.addLibraryPath(.{ .path = b.pathJoin(&.{ b.sysroot.?, "/usr/lib" }) });
-        exe.addFrameworkPath(.{ .path = b.pathJoin(&.{ b.sysroot.?, "/System/Library/Frameworks" }) });
+        exe.addSystemIncludePath(b.path(b.pathJoin(&.{ b.sysroot.?, "/usr/include" })));
+        exe.addLibraryPath(b.path(b.pathJoin(&.{ b.sysroot.?, "/usr/lib" })));
+        exe.addFrameworkPath(b.path(b.pathJoin(&.{ b.sysroot.?, "/System/Library/Frameworks" })));
     }
 
     const raylib_dep = b.dependency("raylib", .{
@@ -44,7 +44,7 @@ pub fn build(b: *std.Build) !void {
     run_step.dependOn(&run_cmd.step);
 
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
