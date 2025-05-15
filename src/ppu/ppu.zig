@@ -183,7 +183,7 @@ pub const PPU = struct {
     mapper: *Mapper,
 
     /// Internal latches that store sprite data for the current scanline.
-    sprites_on_scanline: [8]Sprite = .{.{}} ** 8,
+    sprites_on_scanline: [8]Sprite = [_]Sprite{.{}} ** 8,
 
     const Self = @This();
 
@@ -706,7 +706,7 @@ pub const PPU = struct {
 
                 if (tall_sprites and
                     ((is_second_half and !attrs.flip_vert) or
-                    (!is_second_half and attrs.flip_vert)))
+                        (!is_second_half and attrs.flip_vert)))
                 {
                     tile_index = @addWithOverflow(tile_index, 1)[0];
                 }
