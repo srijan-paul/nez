@@ -326,7 +326,7 @@ const FrameCounter = struct {
     mode: Mode = .four_step,
     pub inline fn setMode(self: *Self, mode: Mode) void {
         self.mode = mode;
-        self.max_step = mode == if (.four_step) 4 else 5;
+        self.max_step = if (mode == .four_step) 4 else 5;
     }
 
     pub fn tickByApuClock(self: *FrameCounter) bool {

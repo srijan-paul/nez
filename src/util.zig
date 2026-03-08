@@ -18,7 +18,7 @@ pub fn Queue(T: type) type {
         front: usize,
         back: usize,
         allocator: std.mem.Allocator,
-        lock: std.Thread.Mutex,
+        lock: std.atomic.Mutex,
 
         pub fn init(allocator: std.mem.Allocator) !Self {
             return Queue(T){
@@ -26,7 +26,7 @@ pub fn Queue(T: type) type {
                 .front = 0,
                 .back = 0,
                 .allocator = allocator,
-                .lock = std.Thread.Mutex{},
+                .lock = .unlocked,
             };
         }
 
@@ -47,7 +47,7 @@ pub fn Queue(T: type) type {
         }
 
         pub inline fn push(self: *Self, value: T) !void {
-            self.lock.lock();
+            while (!self.lock.tryLock()) {}
             defer self.lock.unlock();
 
             if (self.isFull()) {
@@ -75,7 +75,7 @@ pub fn Queue(T: type) type {
         }
 
         pub inline fn pop(self: *Self) QueueError!T {
-            self.lock.lock();
+            while (!self.lock.tryLock()) {}
             defer self.lock.unlock();
 
             if (self.front == self.back) {

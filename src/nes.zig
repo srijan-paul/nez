@@ -2,7 +2,6 @@ const std = @import("std");
 const CPU = @import("cpu.zig").CPU;
 const bus_mod = @import("bus.zig");
 const Cart = @import("cart.zig").Cart;
-const rl = @import("raylib");
 const PPU = @import("./ppu/ppu.zig").PPU;
 const Gamepad = @import("gamepad.zig");
 const APU = @import("./apu/apu.zig");
@@ -38,9 +37,9 @@ pub const Console = struct {
     phase: usize = 0,
 
     /// Initialize an NES console from a ROM file.
-    pub fn fromROMFile(allocator: Allocator, file_path: [*:0]const u8) !Self {
+    pub fn fromROMFile(allocator: Allocator, io: std.Io, file_path: [*:0]const u8) !Self {
         const cart = try allocator.create(Cart);
-        cart.* = try Cart.loadFromFile(allocator, file_path);
+        cart.* = try Cart.loadFromFile(allocator, io, file_path);
 
         const cpu = try allocator.create(CPU);
         const apu = try allocator.create(APU);

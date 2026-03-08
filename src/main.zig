@@ -75,9 +75,9 @@ const debugFlag = "--debug";
 
 var apu_samples_queue: ?*Queue(i16) = null;
 
-fn rlAudioInputCallback(buffer_: ?*anyopaque, frames: c_uint) callconv(.C) void {
+fn rlAudioInputCallback(buffer_: ?*anyopaque, frames: c_uint) callconv(.c) void {
     const buffer = buffer_ orelse return;
-    const buf: [*]i16 = @alignCast(@ptrCast(buffer));
+    const buf: [*]i16 = @ptrCast(@alignCast(buffer));
 
     const queue = apu_samples_queue orelse return;
 
@@ -93,14 +93,13 @@ fn rlAudioInputCallback(buffer_: ?*anyopaque, frames: c_uint) callconv(.C) void 
     }
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init.Minimal) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(gpa.deinit() == .ok);
+    defer _ = gpa.deinit();
 
     const allocator = gpa.allocator();
 
-    var args = try std.process.argsWithAllocator(allocator);
-    defer args.deinit();
+    var args = std.process.Args.Iterator.init(init.args);
     _ = args.skip();
 
     var isDebug = false;
@@ -135,7 +134,8 @@ pub fn main() !void {
     rl.SetTargetFPS(200);
     defer rl.CloseWindow();
 
-    var emu = try NESConsole.fromROMFile(allocator, romPath);
+    const io = std.Io.Threaded.global_single_threaded.io();
+    var emu = try NESConsole.fromROMFile(allocator, io, romPath);
     defer emu.deinit();
 
     apu_samples_queue = &emu.audio_sample_queue;
@@ -144,7 +144,7 @@ pub fn main() !void {
     defer debug_view.deinit();
     emu.powerOn();
 
-    var then: u64 = @intCast(std.time.milliTimestamp());
+    var then: f64 = rl.GetTime();
 
     var screen = views.Screen.init(emu.ppu, allocator);
     defer screen.deinit();
@@ -163,8 +163,8 @@ pub fn main() !void {
     rl.PlayAudioStream(audio_stream);
 
     while (!rl.WindowShouldClose()) {
-        const now: u64 = @intCast(std.time.milliTimestamp());
-        const dt: u64 = now - then;
+        const now: f64 = rl.GetTime();
+        const dt: u64 = @intFromFloat(@max(0.0, (now - then) * 1000.0));
         then = now;
 
         rl.BeginDrawing();

@@ -77,7 +77,7 @@ pub const Screen = struct {
             const tile_x: i32 = @intFromFloat(mx / (8 * 2));
             const tile_y: i32 = @intFromFloat(my / (8 * 2));
 
-            const buf = try std.fmt.allocPrintZ(self.allocator, "Tile: {}, {}", .{ tile_y, tile_x });
+            const buf = try std.fmt.allocPrintSentinel(self.allocator, "Tile: {}, {}", .{ tile_y, tile_x }, 0);
             defer self.allocator.free(buf);
 
             rl.DrawText(
@@ -449,33 +449,36 @@ pub const CPUView = struct {
             const hi: u16 = self.cpu.memRead(@addWithOverflow(self.cpu.PC, 1)[1]);
             const a = lo | (hi << 8);
 
-            s = try std.fmt.allocPrintZ(
+            s = try std.fmt.allocPrintSentinel(
                 self.allocator,
                 "${x:0>4}: {s} (${x:0>4})",
                 .{ instr_addr, @tagName(op), a },
+                0,
             );
         } else {
-            s = try std.fmt.allocPrintZ(
+            s = try std.fmt.allocPrintSentinel(
                 self.allocator,
                 "${x:0>4}: {s} ({s})",
                 .{ instr_addr, @tagName(op), @tagName(addr_mode) },
+                0,
             );
         }
 
         rl.DrawText(s, 800, 40, 20, rl.WHITE);
 
         const ppustatus: u8 = @bitCast(self.ppu.ppu_status);
-        const ppu_status_s = try std.fmt.allocPrintZ(
+        const ppu_status_s = try std.fmt.allocPrintSentinel(
             self.allocator,
             "PPU Status: {b:0>8}",
             .{ppustatus},
+            0,
         );
 
         defer self.allocator.free(ppu_status_s);
 
         rl.DrawText(ppu_status_s, 800, 60, 20, rl.WHITE);
 
-        const cpu_regs = try std.fmt.allocPrintZ(
+        const cpu_regs = try std.fmt.allocPrintSentinel(
             self.allocator,
             "A: ${x:0>2} X: ${x:0>2} Y: ${x:0>2} SP: ${x:0>2}",
             .{
@@ -484,6 +487,7 @@ pub const CPUView = struct {
                 self.cpu.Y,
                 @as(u8, @bitCast(self.cpu.StatusRegister)),
             },
+            0,
         );
 
         defer self.allocator.free(cpu_regs);

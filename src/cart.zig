@@ -132,14 +132,16 @@ pub const Cart = struct {
 
     const Self = @This();
 
-    pub fn loadFromFile(allocator: Allocator, path: [*:0]const u8) !Self {
-        var file = try std.fs.cwd().openFileZ(path, .{});
-        defer file.close();
+    pub fn loadFromFile(allocator: Allocator, io: std.Io, path: [*:0]const u8) !Self {
+        const path_slice = std.mem.sliceTo(path, 0);
+        var file = try std.Io.Dir.cwd().openFile(io, path_slice, .{});
+        defer file.close(io);
+
+        var reader_buf: [4096]u8 = undefined;
+        var reader = file.readerStreaming(io, &reader_buf);
 
         var buf = [_]u8{0} ** @sizeOf(Header);
-        var total_bytes_read: usize = 0;
-        var bytes_read = try file.read(&buf);
-        total_bytes_read += bytes_read;
+        var bytes_read = reader.interface.readSliceShort(&buf) catch return error.InvalidROM;
 
         assert(bytes_read == @sizeOf(Header));
 
@@ -156,8 +158,7 @@ pub const Cart = struct {
             // skip the trainer, if present.
             // TODO: actually load the trainer.
             var trainer_buf = [_]u8{0} ** 512;
-            bytes_read = try file.read(&trainer_buf);
-            total_bytes_read += bytes_read;
+            bytes_read = reader.interface.readSliceShort(&trainer_buf) catch return error.InvalidROM;
             assert(bytes_read == 512);
         }
 
@@ -165,15 +166,13 @@ pub const Cart = struct {
         const prg_rom_banksize: usize = 16 * 1024; // size of each ROM bank
 
         const prg_rom_buf = try allocator.alloc(u8, header.prg_rom_banks * prg_rom_banksize);
-        bytes_read = try file.read(prg_rom_buf);
+        bytes_read = reader.interface.readSliceShort(prg_rom_buf) catch return error.InvalidROM;
         std.debug.assert(bytes_read == prg_rom_buf.len);
 
-        total_bytes_read += bytes_read;
         const chr_rom_size = @as(usize, header.chr_rom_count) * 8 * 1024;
         const chr_rom_buf = try allocator.alloc(u8, chr_rom_size);
 
-        bytes_read = try file.read(chr_rom_buf);
-        total_bytes_read += bytes_read;
+        bytes_read = reader.interface.readSliceShort(chr_rom_buf) catch return error.InvalidROM;
         assert(bytes_read == chr_rom_size);
 
         // When a cart does not have CHR-ROM (e.g: Zelda), it has CHR-RAM which is 8KiB.
@@ -200,7 +199,7 @@ pub const Cart = struct {
 };
 
 test "Cartridge loading: header" {
-    var cart = try Cart.loadFromFile(T.allocator, "roms/beepboop.nes");
+    var cart = try Cart.loadFromFile(T.allocator, T.io, "roms/beepboop.nes");
     defer cart.deinit();
 
     try T.expectEqual(Header.Magic{ .N = 'N', .E = 'E', .S = 'S', .EOF = 0x1A }, cart.header.NES);

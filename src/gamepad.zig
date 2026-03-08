@@ -19,9 +19,9 @@ pub const ButtonState = [8]bool;
 /// bit 2: Microphone status bit; (WTF is this even?)
 /// bits 3-7: Not used
 pub const Output = packed struct {
-    primary_controller: bool = 5,
-    secondary_controller: bool = 6,
-    microphone: bool = 7,
+    primary_controller: bool = false,
+    secondary_controller: bool = false,
+    microphone: bool = false,
     __unused: u5 = 0,
 };
 
