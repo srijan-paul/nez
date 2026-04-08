@@ -94,10 +94,10 @@ fn rlAudioInputCallback(buffer_: ?*anyopaque, frames: c_uint) callconv(.c) void 
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    var dbg = std.heap.DebugAllocator(.{}){};
+    defer _ = dbg.deinit();
 
-    const allocator = gpa.allocator();
+    const allocator = dbg.allocator();
 
     var args = std.process.Args.Iterator.init(init.args);
     _ = args.skip();
